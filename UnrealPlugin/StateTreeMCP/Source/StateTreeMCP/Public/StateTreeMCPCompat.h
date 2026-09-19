@@ -85,6 +85,25 @@ namespace StateTreeMCPCompat
 	/** Renames a state. Returns false if not found. */
 	STATETREEMCP_API bool RenameState(UStateTreeEditorData* EditorData, const FGuid& StateID, FName NewName);
 
+	/** Names of the state properties that may be set, for reporting and validation. */
+	STATETREEMCP_API TArray<FString> GetEditableStateProperties();
+
+	/**
+	 * Moves a state under a new parent, at a given position among its siblings.
+	 *
+	 * Sibling order is not cosmetic: the default selection behaviour tries
+	 * children in order, so position decides priority.
+	 *
+	 * NewParentID may be invalid to make the state a root. Index counts from 0,
+	 * and anything past the end (or negative) appends.
+	 */
+	STATETREEMCP_API bool MoveState(
+		UStateTreeEditorData* EditorData,
+		const FGuid& StateID,
+		const FGuid& NewParentID,
+		int32 Index,
+		FString& OutError);
+
 	// ---- Creating assets --------------------------------------------------
 
 	/**

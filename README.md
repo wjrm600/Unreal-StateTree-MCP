@@ -79,6 +79,8 @@ UnrealPlugin/StateTreeMCP/Source/StateTreeMCP/
 | `statetree_save` | 디스크에 저장 |
 | **상태** | |
 | `statetree_add_state` · `rename_state` · `remove_state` | 추가 · 이름변경 · 삭제(하위 포함) |
+| `statetree_set_state_properties` | 상태 속성 (타입 · 선택 동작 · 활성화 · 가중치 · 태그) |
+| `statetree_move_state` | 부모 변경 · **형제 순서 변경** (순서 = 우선순위) |
 | **노드 (태스크·조건·평가자)** | |
 | `statetree_list_node_types` | 쓸 수 있는 노드 타입 + 설정 가능한 프로퍼티 |
 | `statetree_add_node` · `set_node_properties` · `remove_node` | 추가 · 설정 변경 · 삭제 |
@@ -97,7 +99,7 @@ list_schemas → create → add_state → list_node_types → add_node
              → list_bindable → add_binding → add_transition → compile
 ```
 
-**아직 없는 것:** 상태 이동·복제, 트리 파라미터 편집, 고려사항(utility) 편집.
+**아직 없는 것:** 상태 복제, 트리 파라미터 편집, 고려사항(utility) 편집.
 이런 건 에디터에서 하시면 됩니다.
 
 

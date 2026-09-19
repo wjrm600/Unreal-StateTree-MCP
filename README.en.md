@@ -82,6 +82,8 @@ UnrealPlugin/StateTreeMCP/Source/StateTreeMCP/
 | `statetree_save` | Write to disk |
 | **States** | |
 | `statetree_add_state` · `rename_state` · `remove_state` | Add · rename · remove (with its subtree) |
+| `statetree_set_state_properties` | State settings (type, selection behaviour, enabled, weight, tag) |
+| `statetree_move_state` | Reparent, and **reorder among siblings** (order is priority) |
 | **Nodes (tasks, conditions, evaluators)** | |
 | `statetree_list_node_types` | Available node types and their settable properties |
 | `statetree_add_node` · `set_node_properties` · `remove_node` | Add · change settings · remove |
@@ -101,8 +103,8 @@ list_schemas → create → add_state → list_node_types → add_node
              → list_bindable → add_binding → add_transition → compile
 ```
 
-**Not covered:** moving or duplicating states, editing tree parameters, editing
-utility considerations. Do those in the editor.
+**Not covered:** duplicating states, editing tree parameters, editing utility
+considerations. Do those in the editor.
 
 ---
 

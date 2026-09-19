@@ -263,6 +263,121 @@ bool RenameState(UStateTreeEditorData* EditorData, const FGuid& StateID, FName N
 	return false;
 }
 
+TArray<FString> GetEditableStateProperties()
+{
+	TArray<FString> Out;
+#if STATETREEMCP_HAS_STATETREE
+	// Driven by reflection rather than a hand-written list, so a field Epic adds
+	// in a later version becomes settable without a code change here.
+	for (TFieldIterator<const FProperty> It(UStateTreeState::StaticClass()); It; ++It)
+	{
+		const FProperty* Prop = *It;
+
+		// CPF_Edit is what separates a state's authored settings from its
+		// internal wiring: Children and Parent carry neither flag, and letting
+		// those be written as plain values would tear the tree apart.
+		if (!Prop->HasAnyPropertyFlags(CPF_Edit))
+		{
+			continue;
+		}
+
+		// Structural lists have their own tools, which keep ids and parent links
+		// consistent. Setting them wholesale from JSON would not.
+		static const TSet<FName> HandledElsewhere = {
+			TEXT("Tasks"), TEXT("EnterConditions"), TEXT("Transitions"),
+			TEXT("Considerations"), TEXT("SingleTask"), TEXT("ID"),
+		};
+		if (HandledElsewhere.Contains(Prop->GetFName()))
+		{
+			continue;
+		}
+
+		Out.Add(Prop->GetName());
+	}
+	Out.Sort();
+#endif
+	return Out;
+}
+
+bool MoveState(
+	UStateTreeEditorData* EditorData,
+	const FGuid& StateID,
+	const FGuid& NewParentID,
+	int32 Index,
+	FString& OutError)
+{
+#if STATETREEMCP_HAS_STATETREE
+	UStateTreeState* State = FindState(EditorData, StateID);
+	if (!State)
+	{
+		OutError = TEXT("No state with that id.");
+		return false;
+	}
+
+	UStateTreeState* NewParent = nullptr;
+	if (NewParentID.IsValid())
+	{
+		NewParent = FindState(EditorData, NewParentID);
+		if (!NewParent)
+		{
+			OutError = TEXT("No state with that parent id.");
+			return false;
+		}
+
+		if (NewParent == State)
+		{
+			OutError = TEXT("A state cannot be its own parent.");
+			return false;
+		}
+
+		// Moving a state inside its own subtree would detach that whole branch
+		// from the tree and leave it pointing at itself.
+		for (UStateTreeState* Walk = NewParent->Parent; Walk; Walk = Walk->Parent)
+		{
+			if (Walk == State)
+			{
+				OutError = TEXT("A state cannot be moved inside its own subtree.");
+				return false;
+			}
+		}
+	}
+
+	// Detach from wherever it is now.
+	if (State->Parent)
+	{
+		State->Parent->Modify();
+		State->Parent->Children.Remove(State);
+	}
+	else
+	{
+		EditorData->Modify();
+		EditorData->SubTrees.Remove(State);
+	}
+
+	TArray<TObjectPtr<UStateTreeState>>& Siblings = NewParent ? NewParent->Children : EditorData->SubTrees;
+	UObject* NewOwner = NewParent ? static_cast<UObject*>(NewParent) : static_cast<UObject*>(EditorData);
+	NewOwner->Modify();
+
+	State->Modify();
+	State->Parent = NewParent;
+
+	if (Index < 0 || Index >= Siblings.Num())
+	{
+		Siblings.Add(State);
+	}
+	else
+	{
+		Siblings.Insert(State, Index);
+	}
+
+	OutError.Reset();
+	return true;
+#else
+	OutError = TEXT("StateTree is not available in this engine build.");
+	return false;
+#endif
+}
+
 bool RemoveState(UStateTreeEditorData* EditorData, const FGuid& StateID)
 {
 #if STATETREEMCP_HAS_STATETREE

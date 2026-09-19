@@ -211,6 +211,14 @@ void UStateTreeMCPSubsystem::RegisterHandlers()
 					Entry->SetStringField(TEXT("parentId"), Parent ? Parent->ID.ToString() : FString());
 					Entry->SetBoolField(TEXT("enabled"), State.bEnabled);
 
+					// The state's own settings, so a caller can see what
+					// set_state_properties did rather than take it on trust.
+					Entry->SetStringField(TEXT("type"),
+						StaticEnum<EStateTreeStateType>()->GetNameStringByValue((int64)State.Type));
+					Entry->SetStringField(TEXT("selectionBehavior"),
+						StaticEnum<EStateTreeStateSelectionBehavior>()->GetNameStringByValue(
+							(int64)State.SelectionBehavior));
+
 					// Name what is on the state, not just how much: after adding a
 					// task the caller needs to see that the right one landed.
 					auto NodeNames = [EditorData](const TArray<FStateTreeEditorNode>& Nodes)
@@ -762,6 +770,118 @@ void UStateTreeMCPSubsystem::RegisterHandlers()
 
 			OutResult = MakeShared<FJsonObject>();
 			OutResult->SetStringField(TEXT("transitionId"), TransitionID.ToString());
+			return true;
+		});
+
+	// A state's own settings: its type, how it picks children, whether it is on.
+	// Renaming had a tool; everything else on the state did not.
+	Handlers.Add(TEXT("set_state_properties"),
+		[](const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResult, FString& OutError)
+		{
+			UStateTree* Tree = nullptr;
+			UStateTreeEditorData* EditorData = nullptr;
+			FGuid StateId;
+			if (!RequireNode(Params, TEXT("stateId"), Tree, EditorData, StateId, OutError))
+			{
+				return false;
+			}
+
+			UStateTreeState* State = StateTreeMCPCompat::FindState(EditorData, StateId);
+			if (!State)
+			{
+				OutError = FString::Printf(TEXT("No state with id '%s'."), *StateId.ToString());
+				return false;
+			}
+
+			const TSharedPtr<FJsonObject>* Props = nullptr;
+			if (!Params->TryGetObjectField(TEXT("properties"), Props) || !Props)
+			{
+				OutError = TEXT("properties is required.");
+				return false;
+			}
+
+			// Only settings, never structure. Passing Children through a JSON
+			// converter would rebuild the subtree as fresh objects and orphan
+			// everything that referenced it.
+			const TArray<FString> Allowed = StateTreeMCPCompat::GetEditableStateProperties();
+			TArray<FString> Rejected;
+			TSharedRef<FJsonObject> Filtered = MakeShared<FJsonObject>();
+			for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*Props)->Values)
+			{
+				if (Allowed.Contains(Pair.Key))
+				{
+					Filtered->SetField(Pair.Key, Pair.Value);
+				}
+				else
+				{
+					Rejected.Add(Pair.Key);
+				}
+			}
+
+			if (Rejected.Num() > 0)
+			{
+				OutError = FString::Printf(
+					TEXT("Cannot set %s here. Settable: %s. Tasks, conditions and ")
+					TEXT("transitions have their own tools."),
+					*FString::Join(Rejected, TEXT(", ")),
+					*FString::Join(Allowed, TEXT(", ")));
+				return false;
+			}
+
+			State->Modify();
+			if (!FJsonObjectConverter::JsonObjectToUStruct(
+					Filtered, UStateTreeState::StaticClass(), State, 0, 0))
+			{
+				OutError = TEXT("Some properties did not apply. Check the values against their types.");
+				return false;
+			}
+
+			Tree->MarkPackageDirty();
+
+			TArray<FString> Applied;
+			Filtered->Values.GetKeys(Applied);
+			TArray<TSharedPtr<FJsonValue>> AppliedJson;
+			for (const FString& Name : Applied)
+			{
+				AppliedJson.Add(MakeShared<FJsonValueString>(Name));
+			}
+
+			OutResult = MakeShared<FJsonObject>();
+			OutResult->SetArrayField(TEXT("appliedProperties"), AppliedJson);
+			return true;
+		});
+
+	Handlers.Add(TEXT("move_state"),
+		[](const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResult, FString& OutError)
+		{
+			UStateTree* Tree = nullptr;
+			UStateTreeEditorData* EditorData = nullptr;
+			FGuid StateId;
+			if (!RequireNode(Params, TEXT("stateId"), Tree, EditorData, StateId, OutError))
+			{
+				return false;
+			}
+
+			// An absent parent id means "make it a root", which is a real request
+			// and not the same as a malformed one.
+			FGuid NewParentId;
+			const FString ParentText = Params->GetStringField(TEXT("newParentId"));
+			if (!ParentText.IsEmpty() && !ParseStateId(ParentText, NewParentId, OutError))
+			{
+				return false;
+			}
+
+			int32 Index = -1;
+			Params->TryGetNumberField(TEXT("index"), Index);
+
+			if (!StateTreeMCPCompat::MoveState(EditorData, StateId, NewParentId, Index, OutError))
+			{
+				return false;
+			}
+
+			Tree->MarkPackageDirty();
+			OutResult = MakeShared<FJsonObject>();
+			OutResult->SetBoolField(TEXT("moved"), true);
 			return true;
 		});
 

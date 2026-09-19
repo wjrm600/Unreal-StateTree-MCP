@@ -96,6 +96,52 @@ def statetree_add_state(asset_path: str, name: str, parent_id: str = "") -> str:
 
 
 @mcp.tool()
+def statetree_set_state_properties(asset_path: str, state_id: str, properties: dict) -> str:
+    """Change a state's own settings.
+
+    Args:
+        asset_path: Content path of the asset, e.g. "/Game/AI/ST_Grunt".
+        state_id: Id of the state, from `statetree_describe`.
+        properties: Settings to change. The useful ones are `Type`
+            ("State", "Group", "Linked", "LinkedAsset", "Subtree"),
+            `SelectionBehavior` (how it picks among children, e.g.
+            "TrySelectChildrenInOrder", "TrySelectChildrenAtRandom"),
+            `bEnabled`, `Weight`, `Tag` and `Description`. A rejected name comes
+            back with the full list of what is settable.
+
+    Tasks, conditions and transitions are not set here; they have their own
+    tools. Use `statetree_rename_state` for the name.
+    """
+    return _call("set_state_properties", assetPath=asset_path, stateId=state_id,
+                 properties=properties)
+
+
+@mcp.tool()
+def statetree_move_state(
+    asset_path: str,
+    state_id: str,
+    new_parent_id: str = "",
+    index: int = -1,
+) -> str:
+    """Move a state to a different parent, or to a different position among its siblings.
+
+    Args:
+        asset_path: Content path of the asset, e.g. "/Game/AI/ST_Grunt".
+        state_id: The state to move.
+        new_parent_id: Where it goes. Leave empty to make it a root state.
+        index: Position among the new siblings, counting from 0. Leave at -1 to
+            put it last.
+
+    Sibling order decides priority: the default selection behaviour tries
+    children in order and takes the first whose conditions pass. Inserting a
+    state above its siblings is how you make it win, so `statetree_add_state`
+    appending is often not where a state belongs.
+    """
+    return _call("move_state", assetPath=asset_path, stateId=state_id,
+                 newParentId=new_parent_id, index=index)
+
+
+@mcp.tool()
 def statetree_list_node_types(asset_path: str, kind: str = "task") -> str:
     """List the tasks, conditions or evaluators this tree is allowed to use.
 
