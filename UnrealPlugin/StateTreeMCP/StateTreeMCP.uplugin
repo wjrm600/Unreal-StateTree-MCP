@@ -1,0 +1,33 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "StateTree MCP",
+	"Description": "Exposes Unreal Engine StateTree authoring to AI assistants over the Model Context Protocol. Editor-only.",
+	"Category": "Editor|AI",
+	"CreatedBy": "wjrm600",
+	"CreatedByURL": "https://github.com/wjrm600",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": true,
+	"EnabledByDefault": false,
+	"Installed": false,
+	"SupportsUEBuildSystem": true,
+	"Modules": [
+		{
+			"Name": "StateTreeMCP",
+			"Type": "Editor",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [ "Win64", "Mac", "Linux" ]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "StateTree",
+			"Enabled": true
+		}
+	]
+}
