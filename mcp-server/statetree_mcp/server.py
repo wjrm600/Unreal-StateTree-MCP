@@ -178,6 +178,109 @@ def statetree_add_transition(
 
 
 @mcp.tool()
+def statetree_set_node_properties(asset_path: str, node_id: str, properties: dict) -> str:
+    """Change the settings of a task or condition that is already on the tree.
+
+    Args:
+        asset_path: Content path of the asset, e.g. "/Game/AI/ST_Grunt".
+        node_id: Id of the node, from `statetree_describe`.
+        properties: The settings to change, keyed by the names
+            `statetree_list_node_types` reports for this node's type. Settings
+            not named here keep their current values.
+
+    Prefer this to removing and re-adding a node, which would drop any bindings
+    pointing at it.
+    """
+    return _call("set_node_properties", assetPath=asset_path, nodeId=node_id,
+                 properties=properties)
+
+
+@mcp.tool()
+def statetree_remove_node(asset_path: str, node_id: str) -> str:
+    """Remove a task, condition or evaluator.
+
+    Args:
+        asset_path: Content path of the asset, e.g. "/Game/AI/ST_Grunt".
+        node_id: Id of the node, from `statetree_describe`.
+
+    Bindings that fed this node are removed with it, so they cannot linger and
+    fail to resolve later.
+    """
+    return _call("remove_node", assetPath=asset_path, nodeId=node_id)
+
+
+@mcp.tool()
+def statetree_remove_transition(asset_path: str, transition_id: str) -> str:
+    """Remove a transition.
+
+    Args:
+        asset_path: Content path of the asset, e.g. "/Game/AI/ST_Grunt".
+        transition_id: Id of the transition, from `statetree_describe`.
+    """
+    return _call("remove_transition", assetPath=asset_path, transitionId=transition_id)
+
+
+@mcp.tool()
+def statetree_list_bindable(asset_path: str, node_id: str) -> str:
+    """List what a node's settings can be wired to.
+
+    Args:
+        asset_path: Content path of the asset, e.g. "/Game/AI/ST_Grunt".
+        node_id: Id of the node, from `statetree_describe`.
+
+    Returns the context data, tree parameters and earlier nodes' outputs this
+    node is allowed to read, each with a `sourceStructId` and its readable
+    `properties`. What is available depends on where the node sits in the tree,
+    so ask per node rather than reusing an earlier answer.
+    """
+    return _call("list_bindable", assetPath=asset_path, nodeId=node_id)
+
+
+@mcp.tool()
+def statetree_add_binding(
+    asset_path: str,
+    node_id: str,
+    target_property: str,
+    source_struct_id: str,
+    source_property: str,
+) -> str:
+    """Wire one of a node's settings to a value from elsewhere in the tree.
+
+    Args:
+        asset_path: Content path of the asset, e.g. "/Game/AI/ST_Grunt".
+        node_id: The node whose setting is being fed.
+        target_property: The setting to feed, from `statetree_list_node_types`.
+        source_struct_id: `sourceStructId` from `statetree_list_bindable`.
+        source_property: A property on that source.
+
+    Tasks usually read their inputs rather than carry them as fixed values — an
+    actor to move, a tag to check — and this is that wire. Binding the same
+    setting again replaces the previous wire rather than adding a second.
+    """
+    return _call(
+        "add_binding",
+        assetPath=asset_path,
+        nodeId=node_id,
+        targetProperty=target_property,
+        sourceStructId=source_struct_id,
+        sourceProperty=source_property,
+    )
+
+
+@mcp.tool()
+def statetree_remove_binding(asset_path: str, node_id: str, target_property: str) -> str:
+    """Unwire one of a node's settings, leaving it to its own value again.
+
+    Args:
+        asset_path: Content path of the asset, e.g. "/Game/AI/ST_Grunt".
+        node_id: Id of the node, from `statetree_describe`.
+        target_property: The setting to unwire.
+    """
+    return _call("remove_binding", assetPath=asset_path, nodeId=node_id,
+                 targetProperty=target_property)
+
+
+@mcp.tool()
 def statetree_rename_state(asset_path: str, state_id: str, name: str) -> str:
     """Rename a state.
 

@@ -25,6 +25,10 @@
 #include "StateTreeState.h"
 #include "StateTreeTaskBase.h"
 #include "StateTreeTypes.h"
+#include "PropertyBindingBindableStructDescriptor.h"
+#include "PropertyBindingBinding.h"
+#include "PropertyBindingPath.h"
+#include "StructUtils/InstancedStruct.h"
 #if STATETREEMCP_HAS_EDITING_SUBSYSTEM
 #include "StateTreeEditingSubsystem.h"
 #include "StateTreeCompilerLog.h"
@@ -476,6 +480,251 @@ bool AddNode(
 #endif
 }
 
+#if STATETREEMCP_HAS_STATETREE
+
+/** Every node list in the asset, paired with the object that owns it. */
+static void ForEachNodeList(
+	UStateTreeEditorData* EditorData,
+	TFunctionRef<bool(TArray<FStateTreeEditorNode>& List, UObject* Owner)> Visitor)
+{
+	if (!EditorData)
+	{
+		return;
+	}
+
+	if (!Visitor(EditorData->Evaluators, EditorData))  { return; }
+	if (!Visitor(EditorData->GlobalTasks, EditorData)) { return; }
+
+	bool bContinue = true;
+	VisitAllStates(EditorData, [&](UStateTreeState& State, UStateTreeState*, int32)
+	{
+		if (!bContinue) { return; }
+		bContinue = Visitor(State.Tasks, &State)
+			&& Visitor(State.EnterConditions, &State);
+	});
+}
+
+#endif
+
+bool GetNodeInstance(
+	UStateTreeEditorData* EditorData,
+	const FGuid& NodeID,
+	const UStruct*& OutInstanceType,
+	void*& OutInstanceMemory,
+	UObject*& OutOwner)
+{
+	OutInstanceType = nullptr;
+	OutInstanceMemory = nullptr;
+	OutOwner = nullptr;
+
+#if STATETREEMCP_HAS_STATETREE
+	if (!NodeID.IsValid())
+	{
+		return false;
+	}
+
+	bool bFound = false;
+	ForEachNodeList(EditorData, [&](TArray<FStateTreeEditorNode>& List, UObject* Owner)
+	{
+		for (FStateTreeEditorNode& Node : List)
+		{
+			if (Node.ID != NodeID)
+			{
+				continue;
+			}
+
+			// Settings sit in one of two places depending on the node type, the
+			// same split AddNode had to handle when creating them.
+			if (Node.InstanceObject)
+			{
+				OutInstanceType = Node.InstanceObject->GetClass();
+				OutInstanceMemory = Node.InstanceObject;
+			}
+			else if (Node.Instance.IsValid())
+			{
+				OutInstanceType = Node.Instance.GetScriptStruct();
+				OutInstanceMemory = Node.Instance.GetMutableMemory();
+			}
+
+			OutOwner = Owner;
+			bFound = true;
+			return false;   // stop
+		}
+		return true;
+	});
+
+	return bFound;
+#else
+	return false;
+#endif
+}
+
+bool RemoveNode(UStateTreeEditorData* EditorData, const FGuid& NodeID)
+{
+#if STATETREEMCP_HAS_STATETREE
+	if (!NodeID.IsValid())
+	{
+		return false;
+	}
+
+	bool bRemoved = false;
+	ForEachNodeList(EditorData, [&](TArray<FStateTreeEditorNode>& List, UObject* Owner)
+	{
+		const int32 Index = List.IndexOfByPredicate(
+			[&NodeID](const FStateTreeEditorNode& Node) { return Node.ID == NodeID; });
+		if (Index == INDEX_NONE)
+		{
+			return true;   // keep looking
+		}
+
+		Owner->Modify();
+		List.RemoveAt(Index);
+		bRemoved = true;
+		return false;
+	});
+
+	if (bRemoved)
+	{
+		// Bindings that fed the departed node would otherwise linger and fail to
+		// resolve at compile time, blaming a node that no longer exists.
+		EditorData->Modify();
+		EditorData->EditorBindings.RemoveBindings(
+			[&NodeID](FPropertyBindingBinding& Binding)
+			{
+				return Binding.GetTargetPath().GetStructID() == NodeID;
+			});
+	}
+
+	return bRemoved;
+#else
+	return false;
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// Bindings
+// ---------------------------------------------------------------------------
+
+TArray<FBindableSource> GetBindableSources(UStateTreeEditorData* EditorData, const FGuid& NodeID)
+{
+	TArray<FBindableSource> Out;
+#if STATETREEMCP_HAS_STATETREE
+	if (!EditorData || !NodeID.IsValid())
+	{
+		return Out;
+	}
+
+	// The tree decides what a node may read: context data, parameters, and the
+	// outputs of nodes that run before it. Asking it beats guessing.
+	//
+	// GetBindableStructs replaced GetAccessibleStructs in 5.6. The old one still
+	// exists but is deprecated with an empty body, so calling it silently returns
+	// nothing - which is worth knowing when porting this to 5.5 or earlier, where
+	// only the old one is there and it does work.
+	TArray<TInstancedStruct<FPropertyBindingBindableStructDescriptor>> Descs;
+	EditorData->GetBindableStructs(NodeID, Descs);
+
+	for (const TInstancedStruct<FPropertyBindingBindableStructDescriptor>& Instanced : Descs)
+	{
+		const FPropertyBindingBindableStructDescriptor* Desc = Instanced.GetPtr();
+		if (!Desc || !Desc->Struct || !Desc->ID.IsValid())
+		{
+			continue;
+		}
+
+		FBindableSource& Source = Out.AddDefaulted_GetRef();
+		Source.ID = Desc->ID.ToString();
+		Source.Name = Desc->Name.ToString();
+		Source.StructName = Desc->Struct->GetName();
+
+		for (TFieldIterator<const FProperty> It(Desc->Struct); It; ++It)
+		{
+			Source.Properties.Add(It->GetName());
+		}
+	}
+#endif
+	return Out;
+}
+
+bool AddBinding(
+	UStateTreeEditorData* EditorData,
+	const FGuid& NodeID,
+	const FString& TargetProperty,
+	const FGuid& SourceStructID,
+	const FString& SourceProperty,
+	FString& OutError)
+{
+#if STATETREEMCP_HAS_STATETREE
+	if (!EditorData || !NodeID.IsValid() || !SourceStructID.IsValid())
+	{
+		OutError = TEXT("A node id and a source struct id are both required.");
+		return false;
+	}
+
+	if (TargetProperty.IsEmpty())
+	{
+		OutError = TEXT("targetProperty is required.");
+		return false;
+	}
+
+	// Check the target exists before wiring: a typo would otherwise sit in the
+	// asset until compile time and report itself as something else.
+	const UStruct* InstanceType = nullptr;
+	void* InstanceMemory = nullptr;
+	UObject* Owner = nullptr;
+	if (!GetNodeInstance(EditorData, NodeID, InstanceType, InstanceMemory, Owner))
+	{
+		OutError = TEXT("No node with that id.");
+		return false;
+	}
+
+	if (!InstanceType || !InstanceType->FindPropertyByName(FName(*TargetProperty)))
+	{
+		OutError = FString::Printf(
+			TEXT("'%s' is not a property of this node. Call list_node_types to see its properties."),
+			*TargetProperty);
+		return false;
+	}
+
+	EditorData->Modify();
+
+	FPropertyBindingPath SourcePath(SourceStructID, FName(*SourceProperty));
+	FPropertyBindingPath TargetPath(NodeID, FName(*TargetProperty));
+
+	// AddBinding replaces whatever targeted this property already, so wiring the
+	// same input twice updates it rather than stacking.
+	EditorData->EditorBindings.AddBinding(SourcePath, TargetPath);
+
+	OutError.Reset();
+	return true;
+#else
+	OutError = TEXT("StateTree is not available in this engine build.");
+	return false;
+#endif
+}
+
+bool RemoveBinding(UStateTreeEditorData* EditorData, const FGuid& NodeID, const FString& TargetProperty)
+{
+#if STATETREEMCP_HAS_STATETREE
+	if (!EditorData || !NodeID.IsValid() || TargetProperty.IsEmpty())
+	{
+		return false;
+	}
+
+	const FPropertyBindingPath TargetPath(NodeID, FName(*TargetProperty));
+	if (!EditorData->EditorBindings.HasBinding(TargetPath))
+	{
+		return false;
+	}
+
+	EditorData->Modify();
+	EditorData->EditorBindings.RemoveBindings(TargetPath);
+	return true;
+#else
+	return false;
+#endif
+}
+
 // ---------------------------------------------------------------------------
 // Transitions
 // ---------------------------------------------------------------------------
@@ -578,6 +827,38 @@ bool AddTransition(
 	return true;
 #else
 	OutError = TEXT("StateTree is not available in this engine build.");
+	return false;
+#endif
+}
+
+bool RemoveTransition(UStateTreeEditorData* EditorData, const FGuid& TransitionID)
+{
+#if STATETREEMCP_HAS_STATETREE
+	if (!EditorData || !TransitionID.IsValid())
+	{
+		return false;
+	}
+
+	bool bRemoved = false;
+	VisitAllStates(EditorData, [&](UStateTreeState& State, UStateTreeState*, int32)
+	{
+		if (bRemoved)
+		{
+			return;
+		}
+
+		const int32 Index = State.Transitions.IndexOfByPredicate(
+			[&TransitionID](const FStateTreeTransition& T) { return T.ID == TransitionID; });
+		if (Index != INDEX_NONE)
+		{
+			State.Modify();
+			State.Transitions.RemoveAt(Index);
+			bRemoved = true;
+		}
+	});
+
+	return bRemoved;
+#else
 	return false;
 #endif
 }

@@ -180,6 +180,52 @@ namespace StateTreeMCPCompat
 		void*& OutInstanceMemory,
 		FString& OutError);
 
+	/**
+	 * Finds a node's settings anywhere in the asset, for reading or editing.
+	 * OutOwner is the object to call Modify() on before changing anything.
+	 */
+	STATETREEMCP_API bool GetNodeInstance(
+		UStateTreeEditorData* EditorData,
+		const FGuid& NodeID,
+		const UStruct*& OutInstanceType,
+		void*& OutInstanceMemory,
+		UObject*& OutOwner);
+
+	/** Removes a node, and any bindings that targeted it. Returns false if not found. */
+	STATETREEMCP_API bool RemoveNode(UStateTreeEditorData* EditorData, const FGuid& NodeID);
+
+	// ---- Bindings ---------------------------------------------------------
+	//
+	// A task rarely carries its inputs as literals: it reads them from context
+	// data such as the AI controller, from tree parameters, or from an earlier
+	// node's output. A binding is that wire.
+
+	/** A struct a node's property can be wired to. */
+	struct FBindableSource
+	{
+		FString ID;                  // pass back as sourceStructId
+		FString Name;
+		FString StructName;
+		TArray<FString> Properties;  // readable properties on it
+	};
+
+	/** What the given node is allowed to bind to, per the tree's structure. */
+	STATETREEMCP_API TArray<FBindableSource> GetBindableSources(
+		UStateTreeEditorData* EditorData, const FGuid& NodeID);
+
+	/** Wires SourceStructID.SourceProperty into the node's TargetProperty. */
+	STATETREEMCP_API bool AddBinding(
+		UStateTreeEditorData* EditorData,
+		const FGuid& NodeID,
+		const FString& TargetProperty,
+		const FGuid& SourceStructID,
+		const FString& SourceProperty,
+		FString& OutError);
+
+	/** Drops whatever was wired into the node's TargetProperty. */
+	STATETREEMCP_API bool RemoveBinding(
+		UStateTreeEditorData* EditorData, const FGuid& NodeID, const FString& TargetProperty);
+
 	// ---- Transitions ------------------------------------------------------
 
 	/**
@@ -197,6 +243,9 @@ namespace StateTreeMCPCompat
 		const FString& PriorityName,
 		FGuid& OutTransitionID,
 		FString& OutError);
+
+	/** Removes a transition by id, searching every state. Returns false if not found. */
+	STATETREEMCP_API bool RemoveTransition(UStateTreeEditorData* EditorData, const FGuid& TransitionID);
 
 	// ---- Saving -----------------------------------------------------------
 

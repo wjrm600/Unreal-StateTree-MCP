@@ -68,6 +68,37 @@ UnrealPlugin/StateTreeMCP/Source/StateTreeMCP/
 
 | 도구 | 하는 일 |
 |---|---|
+| **에셋** | |
+| `statetree_capabilities` | 연결된 엔진 버전과 지원 기능 |
+| `statetree_list_schemas` | 쓸 수 있는 스키마 목록 |
+| `statetree_create` | StateTree 에셋 생성 |
+| `statetree_describe` | 트리 전체 내용 (상태·태스크·조건·트랜지션 + id) |
+| `statetree_compile` | 검증 + 컴파일 (기본 저장, 컴파일러 메시지 반환) |
+| `statetree_save` | 디스크에 저장 |
+| **상태** | |
+| `statetree_add_state` · `rename_state` · `remove_state` | 추가 · 이름변경 · 삭제(하위 포함) |
+| **노드 (태스크·조건·평가자)** | |
+| `statetree_list_node_types` | 쓸 수 있는 노드 타입 + 설정 가능한 프로퍼티 |
+| `statetree_add_node` · `set_node_properties` · `remove_node` | 추가 · 설정 변경 · 삭제 |
+| **트랜지션** | |
+| `statetree_add_transition` · `remove_transition` | 추가 · 삭제 |
+| **바인딩** | |
+| `statetree_list_bindable` | 이 노드가 읽을 수 있는 값들 |
+| `statetree_add_binding` · `remove_binding` | 연결 · 해제 |
+
+**도구 이름은 엔진 버전과 무관하게 고정입니다.** 버전 차이는 안쪽 구현이 흡수합니다.
+
+전형적인 흐름:
+
+```
+list_schemas → create → add_state → list_node_types → add_node
+             → list_bindable → add_binding → add_transition → compile
+```
+
+**아직 없는 것:** 상태 이동·복제, 트리 파라미터 편집, 고려사항(utility) 편집.
+이런 건 에디터에서 하시면 됩니다.
+
+---|---|
 | `statetree_capabilities` | 연결된 엔진 버전과 지원 기능 보고 |
 | `statetree_list_schemas` | 이 프로젝트에서 쓸 수 있는 스키마 목록 |
 | `statetree_create` | StateTree 에셋 새로 생성 |

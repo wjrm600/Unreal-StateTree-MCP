@@ -70,6 +70,39 @@ namespace
 		}
 		return true;
 	}
+
+	/**
+	 * The opening of every handler that works on a node or transition: load the
+	 * asset, reach its editor data, and read the id under the given field.
+	 */
+	bool RequireNode(
+		const TSharedPtr<FJsonObject>& Params,
+		const TCHAR* IdField,
+		UStateTree*& OutTree,
+		UStateTreeEditorData*& OutEditorData,
+		FGuid& OutId,
+		FString& OutError)
+	{
+		if (!StateTreeMCPCompat::IsStateTreeAvailable(OutError))
+		{
+			return false;
+		}
+
+		OutEditorData = LoadEditorData(Params->GetStringField(TEXT("assetPath")), OutTree, OutError);
+		if (!OutEditorData)
+		{
+			return false;
+		}
+
+		const FString IdText = Params->GetStringField(IdField);
+		if (IdText.IsEmpty())
+		{
+			OutError = FString::Printf(TEXT("%s is required."), IdField);
+			return false;
+		}
+
+		return ParseStateId(IdText, OutId, OutError);
+	}
 }
 
 void UStateTreeMCPSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -711,6 +744,207 @@ void UStateTreeMCPSubsystem::RegisterHandlers()
 
 			OutResult = MakeShared<FJsonObject>();
 			OutResult->SetStringField(TEXT("transitionId"), TransitionID.ToString());
+			return true;
+		});
+
+	Handlers.Add(TEXT("remove_node"),
+		[](const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResult, FString& OutError)
+		{
+			UStateTree* Tree = nullptr;
+			UStateTreeEditorData* EditorData = nullptr;
+			FGuid NodeId;
+			if (!RequireNode(Params, TEXT("nodeId"), Tree, EditorData, NodeId, OutError))
+			{
+				return false;
+			}
+
+			if (!StateTreeMCPCompat::RemoveNode(EditorData, NodeId))
+			{
+				OutError = FString::Printf(TEXT("No node with id '%s'."), *NodeId.ToString());
+				return false;
+			}
+
+			Tree->MarkPackageDirty();
+			OutResult = MakeShared<FJsonObject>();
+			OutResult->SetBoolField(TEXT("removed"), true);
+			return true;
+		});
+
+	Handlers.Add(TEXT("remove_transition"),
+		[](const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResult, FString& OutError)
+		{
+			UStateTree* Tree = nullptr;
+			UStateTreeEditorData* EditorData = nullptr;
+			FGuid TransitionId;
+			if (!RequireNode(Params, TEXT("transitionId"), Tree, EditorData, TransitionId, OutError))
+			{
+				return false;
+			}
+
+			if (!StateTreeMCPCompat::RemoveTransition(EditorData, TransitionId))
+			{
+				OutError = FString::Printf(
+					TEXT("No transition with id '%s'. Call describe_tree for the ids."),
+					*TransitionId.ToString());
+				return false;
+			}
+
+			Tree->MarkPackageDirty();
+			OutResult = MakeShared<FJsonObject>();
+			OutResult->SetBoolField(TEXT("removed"), true);
+			return true;
+		});
+
+	// Editing an existing node, rather than deleting and re-adding it, which
+	// would lose the bindings pointing at it.
+	Handlers.Add(TEXT("set_node_properties"),
+		[](const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResult, FString& OutError)
+		{
+			UStateTree* Tree = nullptr;
+			UStateTreeEditorData* EditorData = nullptr;
+			FGuid NodeId;
+			if (!RequireNode(Params, TEXT("nodeId"), Tree, EditorData, NodeId, OutError))
+			{
+				return false;
+			}
+
+			const UStruct* InstanceType = nullptr;
+			void* InstanceMemory = nullptr;
+			UObject* Owner = nullptr;
+			if (!StateTreeMCPCompat::GetNodeInstance(EditorData, NodeId, InstanceType, InstanceMemory, Owner))
+			{
+				OutError = FString::Printf(TEXT("No node with id '%s'."), *NodeId.ToString());
+				return false;
+			}
+
+			if (!InstanceType || !InstanceMemory)
+			{
+				OutError = TEXT("This node has no settings to change.");
+				return false;
+			}
+
+			const TSharedPtr<FJsonObject>* Props = nullptr;
+			if (!Params->TryGetObjectField(TEXT("properties"), Props) || !Props)
+			{
+				OutError = TEXT("properties is required.");
+				return false;
+			}
+
+			Owner->Modify();
+			if (!FJsonObjectConverter::JsonObjectToUStruct(
+					Props->ToSharedRef(), InstanceType, InstanceMemory, 0, 0))
+			{
+				OutError = FString::Printf(
+					TEXT("Some properties did not apply. Check names and types against ")
+					TEXT("list_node_types (instance type '%s')."),
+					*InstanceType->GetName());
+				return false;
+			}
+
+			Tree->MarkPackageDirty();
+
+			TArray<FString> Applied;
+			(*Props)->Values.GetKeys(Applied);
+
+			TArray<TSharedPtr<FJsonValue>> AppliedJson;
+			for (const FString& Name : Applied)
+			{
+				AppliedJson.Add(MakeShared<FJsonValueString>(Name));
+			}
+
+			OutResult = MakeShared<FJsonObject>();
+			OutResult->SetArrayField(TEXT("appliedProperties"), AppliedJson);
+			return true;
+		});
+
+	Handlers.Add(TEXT("list_bindable"),
+		[](const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResult, FString& OutError)
+		{
+			UStateTree* Tree = nullptr;
+			UStateTreeEditorData* EditorData = nullptr;
+			FGuid NodeId;
+			if (!RequireNode(Params, TEXT("nodeId"), Tree, EditorData, NodeId, OutError))
+			{
+				return false;
+			}
+
+			TArray<TSharedPtr<FJsonValue>> Sources;
+			for (const StateTreeMCPCompat::FBindableSource& Source :
+					StateTreeMCPCompat::GetBindableSources(EditorData, NodeId))
+			{
+				TSharedRef<FJsonObject> S = MakeShared<FJsonObject>();
+				S->SetStringField(TEXT("sourceStructId"), Source.ID);
+				S->SetStringField(TEXT("name"), Source.Name);
+				S->SetStringField(TEXT("struct"), Source.StructName);
+
+				TArray<TSharedPtr<FJsonValue>> Props;
+				for (const FString& Prop : Source.Properties)
+				{
+					Props.Add(MakeShared<FJsonValueString>(Prop));
+				}
+				S->SetArrayField(TEXT("properties"), Props);
+				Sources.Add(MakeShared<FJsonValueObject>(S));
+			}
+
+			OutResult = MakeShared<FJsonObject>();
+			OutResult->SetArrayField(TEXT("sources"), Sources);
+			return true;
+		});
+
+	Handlers.Add(TEXT("add_binding"),
+		[](const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResult, FString& OutError)
+		{
+			UStateTree* Tree = nullptr;
+			UStateTreeEditorData* EditorData = nullptr;
+			FGuid NodeId;
+			if (!RequireNode(Params, TEXT("nodeId"), Tree, EditorData, NodeId, OutError))
+			{
+				return false;
+			}
+
+			FGuid SourceId;
+			if (!ParseStateId(Params->GetStringField(TEXT("sourceStructId")), SourceId, OutError))
+			{
+				return false;
+			}
+
+			if (!StateTreeMCPCompat::AddBinding(
+					EditorData, NodeId,
+					Params->GetStringField(TEXT("targetProperty")),
+					SourceId,
+					Params->GetStringField(TEXT("sourceProperty")),
+					OutError))
+			{
+				return false;
+			}
+
+			Tree->MarkPackageDirty();
+			OutResult = MakeShared<FJsonObject>();
+			OutResult->SetBoolField(TEXT("bound"), true);
+			return true;
+		});
+
+	Handlers.Add(TEXT("remove_binding"),
+		[](const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResult, FString& OutError)
+		{
+			UStateTree* Tree = nullptr;
+			UStateTreeEditorData* EditorData = nullptr;
+			FGuid NodeId;
+			if (!RequireNode(Params, TEXT("nodeId"), Tree, EditorData, NodeId, OutError))
+			{
+				return false;
+			}
+
+			const FString TargetProperty = Params->GetStringField(TEXT("targetProperty"));
+			if (!StateTreeMCPCompat::RemoveBinding(EditorData, NodeId, TargetProperty))
+			{
+				OutError = FString::Printf(TEXT("'%s' has nothing bound to it."), *TargetProperty);
+				return false;
+			}
+
+			Tree->MarkPackageDirty();
+			OutResult = MakeShared<FJsonObject>();
+			OutResult->SetBoolField(TEXT("removed"), true);
 			return true;
 		});
 
