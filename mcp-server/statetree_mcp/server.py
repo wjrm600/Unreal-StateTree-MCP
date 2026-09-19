@@ -251,11 +251,16 @@ def statetree_add_binding(
         node_id: The node whose setting is being fed.
         target_property: The setting to feed, from `statetree_list_node_types`.
         source_struct_id: `sourceStructId` from `statetree_list_bindable`.
-        source_property: A property on that source.
+        source_property: A property on that source, or empty for the source
+            itself. Empty is what you want for context data: a task needing the
+            AI controller binds to the whole AIController, not a field on it.
 
     Tasks usually read their inputs rather than carry them as fixed values — an
     actor to move, a tag to check — and this is that wire. Binding the same
     setting again replaces the previous wire rather than adding a second.
+
+    Types are not checked here; a mismatch surfaces as a compile error naming
+    both sides.
     """
     return _call(
         "add_binding",

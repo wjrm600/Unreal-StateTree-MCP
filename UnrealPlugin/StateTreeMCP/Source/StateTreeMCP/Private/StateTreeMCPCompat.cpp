@@ -688,7 +688,15 @@ bool AddBinding(
 
 	EditorData->Modify();
 
-	FPropertyBindingPath SourcePath(SourceStructID, FName(*SourceProperty));
+	// An empty source property means the source itself, which is the usual case
+	// for context data: a task wanting the AI controller binds to the whole
+	// AIController, not to a field on it. That needs the struct-only path -
+	// passing an empty FName instead builds a segment named "None", which the
+	// compiler rejects as a malformed path.
+	FPropertyBindingPath SourcePath = SourceProperty.IsEmpty()
+		? FPropertyBindingPath(SourceStructID)
+		: FPropertyBindingPath(SourceStructID, FName(*SourceProperty));
+
 	FPropertyBindingPath TargetPath(NodeID, FName(*TargetProperty));
 
 	// AddBinding replaces whatever targeted this property already, so wiring the
