@@ -2,7 +2,9 @@
 
 언리얼 엔진의 **StateTree 에셋을 AI 어시스턴트가 직접 읽고 편집**할 수 있게 해주는 MCP 서버입니다.
 
-> ⚠️ **현재 상태: 스캐폴드(뼈대).** 구조와 핵심 경로는 전부 작성되어 있지만 **아직 한 번도 컴파일된 적이 없습니다.** 첫 빌드에서 오류가 날 수 있습니다. [첫 빌드하기](#첫-빌드하기) 참고.
+> **현재 상태: UE 5.7.4에서 동작 검증 완료.** 빌드·읽기·쓰기·컴파일·저장 전 구간을 실제
+> 프로젝트에서 확인했습니다. 다른 엔진 버전은 아직 미검증입니다 —
+> [docs/VERSION_SUPPORT.md](docs/VERSION_SUPPORT.md) 참고.
 
 ---
 
@@ -118,25 +120,34 @@ pip install -e .
 
 ---
 
-## 첫 빌드하기
+## 빌드하기
 
-이 저장소는 아직 빌드 검증을 거치지 않았습니다. 예상되는 손볼 지점:
+`.uproject` 우클릭 → **Generate Visual Studio project files** → 빌드.
+새 모듈이라 **핫 리로드로는 안 되고 풀 리빌드가 필요합니다.**
 
-- `HttpServerRequest.h` / `IHttpRouter.h` 인클루드 경로 (버전별로 다를 수 있음)
-- `FHttpServerResponse::Create` 오버로드 시그니처
-- `Resources/Icon128.png` 없음 — 없어도 빌드는 되고 아이콘만 기본값이 됩니다
-
-빌드 후 에디터를 열고 출력 로그에서 확인하세요:
+에디터를 열고 출력 로그에서 확인하세요:
 
 ```
+LogStateTreeMCP: StateTree MCP starting on UE 5.7 (StateTree=yes, compile=yes, ...)
 LogStateTreeMCP: StateTree MCP bridge listening on http://127.0.0.1:8092/rpc
 ```
 
-브리지 단독 테스트:
+브리지 단독 테스트 (MCP 서버 없이):
 
 ```bash
 curl -X POST http://127.0.0.1:8092/rpc -H "Content-Type: application/json" -d "{\"action\":\"capabilities\"}"
 ```
+
+### 다른 엔진 버전으로 옮길 때 참고
+
+5.7 첫 빌드에서 걸렸던 것들입니다. 같은 자리에서 막힐 가능성이 높습니다.
+
+| 증상 | 원인 | 해결 |
+|---|---|---|
+| `C2371` / `C2064` | `FHttpResultCallback`은 클래스가 아니라 `TFunction`의 typedef라 전방 선언 불가 | `HttpResultCallback.h` 직접 include |
+| `C2679` / `C2664` | `BindRoute`가 돌려주는 건 `FDelegateHandle`이 아니라 `FHttpRouteHandle` | 멤버 타입 교체 |
+| `LNK2019` 소멸자 미해결 | `FStateTreeCompilerLog` → `FStateTreeBindableStructDesc` → `FPropertyBindingBindableStructDescriptor`의 vtable이 다른 플러그인 소유 | `PropertyBindingUtils` 모듈 링크 (**지연 로드 금지** — vtable은 데이터 심볼) |
+| 짧은 요청만 "invalid JSON" | `Request.Body`는 종료 문자가 없는 바이트 배열 | 복사 후 `0` 추가하고 변환 |
 
 ---
 
