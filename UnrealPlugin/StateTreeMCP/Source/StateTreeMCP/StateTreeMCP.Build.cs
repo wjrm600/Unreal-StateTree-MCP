@@ -55,8 +55,18 @@ public class StateTreeMCP : ModuleRules
 		// StateTree itself is delay-loaded. If the user has the plugin disabled the
 		// module still links and reports a clean error at runtime instead of
 		// refusing to build or crashing on load.
-		AddOptionalDynamicModule(Target, "StateTreeModule");
-		AddOptionalDynamicModule(Target, "StateTreeEditorModule");
+		AddOptionalDynamicModule(Target, "StateTree", "StateTreeModule");
+		AddOptionalDynamicModule(Target, "StateTree", "StateTreeEditorModule");
+
+		// FStateTreeCompilerLog holds FStateTreeBindableStructDesc, which derives from
+		// FPropertyBindingBindableStructDescriptor - and that base class exports its
+		// virtual destructor and vtable from PropertyBindingUtils. Merely declaring a
+		// compiler log on the stack therefore needs this module linked.
+		//
+		// Linked hard rather than delay-loaded on purpose: delay-load resolves function
+		// imports, not the data symbols a vtable needs. StateTree's own .uplugin enables
+		// PropertyBindingUtils, so whenever StateTree is available this one is too.
+		AddOptionalModule(Target, "PropertyBindingUtils", "PropertyBindingUtils");
 	}
 
 	/// <summary>Returns true when a public header exists in the engine's StateTree plugin.</summary>
@@ -68,26 +78,31 @@ public class StateTreeMCP : ModuleRules
 		return File.Exists(Candidate);
 	}
 
-	/// <summary>Returns true when the engine ships a StateTree module source folder by this name.</summary>
-	private static bool FindOptionalModule(ReadOnlyTargetRules Target, string ModuleName)
+	/// <summary>Returns true when the engine ships this module inside the named runtime plugin.</summary>
+	private static bool FindOptionalModule(ReadOnlyTargetRules Target, string PluginName, string ModuleName)
 	{
 		string EngineDir = Path.GetFullPath(Target.RelativeEnginePath);
-		string Candidate = Path.Combine(EngineDir, "Plugins", "Runtime", "StateTree", "Source", ModuleName);
+		string Candidate = Path.Combine(EngineDir, "Plugins", "Runtime", PluginName, "Source", ModuleName);
 		return Directory.Exists(Candidate);
+	}
+
+	private static void ReportMissing(ReadOnlyTargetRules Target, string ModuleName)
+	{
+		Console.WriteLine(string.Format(
+			"StateTreeMCP: module '{0}' not found on UE {1}.{2} - StateTree tools will be disabled.",
+			ModuleName, Target.Version.MajorVersion, Target.Version.MinorVersion));
 	}
 
 	/// <summary>
 	/// Links a module only when the engine actually ships it, and delay-loads its DLL
 	/// on Windows so a disabled StateTree plugin degrades to a runtime message
-	/// instead of a load-time failure.
+	/// instead of a load-time failure. Only safe for modules we call functions on.
 	/// </summary>
-	private void AddOptionalDynamicModule(ReadOnlyTargetRules Target, string ModuleName)
+	private void AddOptionalDynamicModule(ReadOnlyTargetRules Target, string PluginName, string ModuleName)
 	{
-		if (!FindOptionalModule(Target, ModuleName))
+		if (!FindOptionalModule(Target, PluginName, ModuleName))
 		{
-			Console.WriteLine(string.Format(
-				"StateTreeMCP: module '{0}' not found on UE {1}.{2} - StateTree tools will be disabled.",
-				ModuleName, Target.Version.MajorVersion, Target.Version.MinorVersion));
+			ReportMissing(Target, ModuleName);
 			return;
 		}
 
@@ -99,5 +114,21 @@ public class StateTreeMCP : ModuleRules
 		}
 
 		Console.WriteLine(string.Format("StateTreeMCP: linked optional module '{0}' (delay-load).", ModuleName));
+	}
+
+	/// <summary>
+	/// Links a module when the engine ships it, without delay-load. Use for modules
+	/// whose data symbols (vtables, exported constants) we depend on.
+	/// </summary>
+	private void AddOptionalModule(ReadOnlyTargetRules Target, string PluginName, string ModuleName)
+	{
+		if (!FindOptionalModule(Target, PluginName, ModuleName))
+		{
+			ReportMissing(Target, ModuleName);
+			return;
+		}
+
+		PrivateDependencyModuleNames.Add(ModuleName);
+		Console.WriteLine(string.Format("StateTreeMCP: linked optional module '{0}'.", ModuleName));
 	}
 }
