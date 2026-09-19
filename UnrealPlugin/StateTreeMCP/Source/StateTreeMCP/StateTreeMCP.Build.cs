@@ -36,6 +36,7 @@ public class StateTreeMCP : ModuleRules
 			"Core",
 			"CoreUObject",
 			"Engine",
+			"HTTPServer",   // types surface in StateTreeMCPSubsystem.h
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
@@ -45,7 +46,6 @@ public class StateTreeMCP : ModuleRules
 			"EditorSubsystem",   // UEditorSubsystem
 			"AssetRegistry",     // finding StateTree assets
 			"AssetTools",        // creating StateTree assets
-			"HTTPServer",        // the local bridge Claude talks to
 			"Json",
 			"JsonUtilities",
 			"GameplayTags",

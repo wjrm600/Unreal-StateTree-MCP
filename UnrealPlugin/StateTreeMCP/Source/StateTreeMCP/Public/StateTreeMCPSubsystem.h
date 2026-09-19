@@ -4,12 +4,17 @@
 
 #include "CoreMinimal.h"
 #include "EditorSubsystem.h"
+
+// Neither of these can be forward declared: FHttpResultCallback is a typedef for
+// a TFunction, and FHttpRouteHandle a typedef for a TSharedPtr.
+#include "HttpResultCallback.h"
+#include "HttpRouteHandle.h"
+
 #include "StateTreeMCPSubsystem.generated.h"
 
 class FJsonObject;
 class IHttpRouter;
 struct FHttpServerRequest;
-class FHttpResultCallback;
 
 /**
  * Hosts the local HTTP bridge that the Python MCP server talks to.
@@ -45,7 +50,9 @@ private:
 
 	TMap<FString, FActionHandler> Handlers;
 	TSharedPtr<IHttpRouter> Router;
-	FDelegateHandle RouteHandle;
+
+	/** What BindRoute hands back, and what UnbindRoute expects. */
+	FHttpRouteHandle RouteHandle;
 
 	/** 8092 by default: 8091 is commonly taken by other Unreal MCP bridges. */
 	int32 Port = 8092;
