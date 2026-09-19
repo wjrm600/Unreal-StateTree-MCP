@@ -294,9 +294,34 @@ void UStateTreeMCPSubsystem::RegisterHandlers()
 				return false;
 			}
 
-			if (!StateTreeMCPCompat::CompileTree(Tree, OutError))
+			TArray<StateTreeMCPCompat::FCompileMessage> Messages;
+			const bool bCompiled = StateTreeMCPCompat::CompileTree(Tree, Messages, OutError);
+
+			// Build the message list either way: a failure needs it to be fixable,
+			// and a success may still carry warnings worth seeing.
+			TArray<TSharedPtr<FJsonValue>> MessagesJson;
+			for (const StateTreeMCPCompat::FCompileMessage& Message : Messages)
 			{
-				return false;
+				TSharedRef<FJsonObject> M = MakeShared<FJsonObject>();
+				M->SetStringField(TEXT("severity"), Message.Severity);
+				M->SetStringField(TEXT("state"), Message.StateName);
+				M->SetStringField(TEXT("node"), Message.NodeName);
+				M->SetStringField(TEXT("message"), Message.Message);
+				MessagesJson.Add(MakeShared<FJsonValueObject>(M));
+			}
+
+			if (!bCompiled)
+			{
+				// The envelope only carries a string on failure, so the detail would
+				// be lost. Report it as a success whose result says it did not
+				// compile, and hand back every message.
+				OutResult = MakeShared<FJsonObject>();
+				OutResult->SetBoolField(TEXT("compiled"), false);
+				OutResult->SetBoolField(TEXT("saved"), false);
+				OutResult->SetStringField(TEXT("error"), OutError);
+				OutResult->SetArrayField(TEXT("messages"), MessagesJson);
+				OutError.Reset();
+				return true;
 			}
 
 			// Compiling means the edits are finished, so persist them here rather
@@ -311,6 +336,7 @@ void UStateTreeMCPSubsystem::RegisterHandlers()
 			OutResult = MakeShared<FJsonObject>();
 			OutResult->SetBoolField(TEXT("compiled"), true);
 			OutResult->SetBoolField(TEXT("saved"), bSaved);
+			OutResult->SetArrayField(TEXT("messages"), MessagesJson);
 			if (bSave && !bSaved)
 			{
 				OutResult->SetStringField(TEXT("saveError"), SaveError);

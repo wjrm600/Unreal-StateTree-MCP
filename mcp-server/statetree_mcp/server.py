@@ -214,6 +214,11 @@ def statetree_compile(asset_path: str, save: bool = True) -> str:
 
     Edits made through the other tools do nothing at runtime until the asset is
     compiled.
+
+    A failure comes back as `compiled: false` with the compiler's own
+    `messages`, each naming the state and node it concerns, rather than as a
+    tool error. Read those to find what to fix. Warnings are reported on success
+    too.
     """
     return _call("compile", assetPath=asset_path, save=save)
 

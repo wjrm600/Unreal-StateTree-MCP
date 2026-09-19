@@ -690,8 +690,10 @@ void ValidateTree(UStateTree* StateTree)
 #endif
 }
 
-bool CompileTree(UStateTree* StateTree, FString& OutError)
+bool CompileTree(UStateTree* StateTree, TArray<FCompileMessage>& OutMessages, FString& OutError)
 {
+	OutMessages.Reset();
+
 	if (!StateTree)
 	{
 		OutError = TEXT("No StateTree asset was given.");
@@ -702,13 +704,36 @@ bool CompileTree(UStateTree* StateTree, FString& OutError)
 	UStateTreeEditingSubsystem::ValidateStateTree(StateTree);
 
 	FStateTreeCompilerLog Log;
-	if (UStateTreeEditingSubsystem::CompileStateTree(StateTree, Log))
+	const bool bCompiled = UStateTreeEditingSubsystem::CompileStateTree(StateTree, Log);
+
+	for (const FStateTreeCompilerLogMessage& Entry : Log.Messages)
+	{
+		FCompileMessage& Out = OutMessages.AddDefaulted_GetRef();
+		switch (Entry.Severity)
+		{
+		case EMessageSeverity::Error:          Out.Severity = TEXT("Error");   break;
+		case EMessageSeverity::Warning:        Out.Severity = TEXT("Warning"); break;
+		default:                               Out.Severity = TEXT("Info");    break;
+		}
+		Out.StateName = Entry.State ? Entry.State->Name.ToString() : FString();
+		Out.NodeName = Entry.Item.Name.ToString();
+		Out.Message = Entry.Message;
+	}
+
+	if (bCompiled)
 	{
 		OutError.Reset();
 		return true;
 	}
 
-	OutError = TEXT("Compilation failed. See the Message Log (StateTree) for details.");
+	// Lead with the first error rather than a generic failure: it is nearly
+	// always the one that needs fixing, and the rest follow from it.
+	const FCompileMessage* FirstError = OutMessages.FindByPredicate(
+		[](const FCompileMessage& M) { return M.Severity == TEXT("Error"); });
+
+	OutError = FirstError
+		? FString::Printf(TEXT("Compilation failed: %s"), *FirstError->Message)
+		: TEXT("Compilation failed, and the compiler gave no reason.");
 	return false;
 #else
 	OutError = FString::Printf(

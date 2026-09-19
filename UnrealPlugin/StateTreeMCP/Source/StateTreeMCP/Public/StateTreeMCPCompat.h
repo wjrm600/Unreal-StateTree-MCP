@@ -109,8 +109,23 @@ namespace StateTreeMCPCompat
 	/** Fixes up links and validates the asset after an edit. No-op if unsupported. */
 	STATETREEMCP_API void ValidateTree(UStateTree* StateTree);
 
-	/** Compiles the asset. Returns false and fills OutError when it cannot. */
-	STATETREEMCP_API bool CompileTree(UStateTree* StateTree, FString& OutError);
+	/** One line from the compiler, as the Message Log would show it. */
+	struct FCompileMessage
+	{
+		FString Severity;   // "Error", "Warning" or "Info"
+		FString StateName;  // empty when the message is not about one state
+		FString NodeName;   // the task or condition at fault, when known
+		FString Message;
+	};
+
+	/**
+	 * Compiles the asset, collecting what the compiler said.
+	 *
+	 * The messages matter as much as the result: a failure usually names the one
+	 * state or task at fault, and without them a caller is only told "it failed".
+	 */
+	STATETREEMCP_API bool CompileTree(
+		UStateTree* StateTree, TArray<FCompileMessage>& OutMessages, FString& OutError);
 
 	/** The asset's editor data, or null if the asset has none. */
 	STATETREEMCP_API UStateTreeEditorData* GetEditorData(UStateTree* StateTree);
