@@ -202,7 +202,7 @@ void UStateTreeMCPSubsystem::RegisterHandlers()
 			TArray<TSharedPtr<FJsonValue>> States;
 #if STATETREEMCP_HAS_STATETREE
 			StateTreeMCPCompat::VisitAllStates(EditorData,
-				[&States](UStateTreeState& State, UStateTreeState* Parent, int32 Depth)
+				[&States, EditorData](UStateTreeState& State, UStateTreeState* Parent, int32 Depth)
 				{
 					TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
 					Entry->SetStringField(TEXT("id"), State.ID.ToString());
