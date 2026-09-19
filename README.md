@@ -121,6 +121,9 @@ python -c "import mcp" || pip install mcp
 }
 ```
 
+Windows 경로는 JSON 안에서 **역슬래시를 두 번** 써야 합니다
+(`E:\Unreal Project\...`). 한 번만 쓰면 파싱 오류가 납니다.
+
 **어느 파일에 넣느냐가 중요합니다** — 쓰는 클라이언트마다 읽는 곳이 다릅니다.
 
 | 클라이언트 | 설정 파일 |
