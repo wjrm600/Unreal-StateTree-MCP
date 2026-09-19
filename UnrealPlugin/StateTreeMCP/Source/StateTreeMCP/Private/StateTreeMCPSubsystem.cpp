@@ -7,6 +7,7 @@
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Dom/JsonObject.h"
+#include "JsonObjectConverter.h"
 #include "HttpServerModule.h"
 #include "HttpServerRequest.h"
 #include "HttpServerResponse.h"
@@ -18,7 +19,9 @@
 #if STATETREEMCP_HAS_STATETREE
 #include "StateTree.h"
 #include "StateTreeEditorData.h"
+#include "StateTreeEditorNode.h"
 #include "StateTreeState.h"
+#include "StateTreeTypes.h"
 #endif
 
 namespace
@@ -173,10 +176,41 @@ void UStateTreeMCPSubsystem::RegisterHandlers()
 					Entry->SetStringField(TEXT("name"), State.Name.ToString());
 					Entry->SetNumberField(TEXT("depth"), Depth);
 					Entry->SetStringField(TEXT("parentId"), Parent ? Parent->ID.ToString() : FString());
-					Entry->SetNumberField(TEXT("taskCount"), State.Tasks.Num());
-					Entry->SetNumberField(TEXT("transitionCount"), State.Transitions.Num());
-					Entry->SetNumberField(TEXT("enterConditionCount"), State.EnterConditions.Num());
 					Entry->SetBoolField(TEXT("enabled"), State.bEnabled);
+
+					// Name what is on the state, not just how much: after adding a
+					// task the caller needs to see that the right one landed.
+					auto NodeNames = [](const TArray<FStateTreeEditorNode>& Nodes)
+					{
+						TArray<TSharedPtr<FJsonValue>> Out;
+						for (const FStateTreeEditorNode& Node : Nodes)
+						{
+							const UScriptStruct* Type = Node.Node.GetScriptStruct();
+							TSharedRef<FJsonObject> N = MakeShared<FJsonObject>();
+							N->SetStringField(TEXT("id"), Node.ID.ToString());
+							N->SetStringField(TEXT("type"), Type ? Type->GetName() : TEXT("(empty)"));
+							Out.Add(MakeShared<FJsonValueObject>(N));
+						}
+						return Out;
+					};
+
+					Entry->SetArrayField(TEXT("tasks"), NodeNames(State.Tasks));
+					Entry->SetArrayField(TEXT("enterConditions"), NodeNames(State.EnterConditions));
+
+					TArray<TSharedPtr<FJsonValue>> Transitions;
+					for (const FStateTreeTransition& Transition : State.Transitions)
+					{
+						TSharedRef<FJsonObject> T = MakeShared<FJsonObject>();
+						T->SetStringField(TEXT("id"), Transition.ID.ToString());
+						T->SetStringField(TEXT("trigger"),
+							StaticEnum<EStateTreeTransitionTrigger>()->GetNameStringByValue((int64)Transition.Trigger));
+						T->SetStringField(TEXT("linkType"),
+							StaticEnum<EStateTreeTransitionType>()->GetNameStringByValue((int64)Transition.State.LinkType));
+						T->SetStringField(TEXT("targetStateId"), Transition.State.ID.ToString());
+						T->SetStringField(TEXT("targetStateName"), Transition.State.Name.ToString());
+						Transitions.Add(MakeShared<FJsonValueObject>(T));
+					}
+					Entry->SetArrayField(TEXT("transitions"), Transitions);
 					States.Add(MakeShared<FJsonValueObject>(Entry));
 				});
 #endif
@@ -434,6 +468,222 @@ void UStateTreeMCPSubsystem::RegisterHandlers()
 
 			OutResult = MakeShared<FJsonObject>();
 			OutResult->SetNumberField(TEXT("removedCount"), Removed);
+			return true;
+		});
+
+	// What can go in a state. The schema decides, and projects add their own
+	// tasks, so this has to be asked of the asset rather than assumed.
+	Handlers.Add(TEXT("list_node_types"),
+		[](const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResult, FString& OutError)
+		{
+			if (!StateTreeMCPCompat::IsStateTreeAvailable(OutError))
+			{
+				return false;
+			}
+
+			UStateTree* Tree = nullptr;
+			UStateTreeEditorData* EditorData =
+				LoadEditorData(Params->GetStringField(TEXT("assetPath")), Tree, OutError);
+			if (!EditorData)
+			{
+				return false;
+			}
+
+			const FString KindText = Params->GetStringField(TEXT("kind"));
+			StateTreeMCPCompat::ENodeKind Kind;
+			if (!StateTreeMCPCompat::ParseNodeKind(KindText, Kind))
+			{
+				OutError = FString::Printf(
+					TEXT("'%s' is not a node kind. Use task, condition, evaluator or globalTask."),
+					*KindText);
+				return false;
+			}
+
+			TArray<TSharedPtr<FJsonValue>> Types;
+			for (const UScriptStruct* Struct : StateTreeMCPCompat::GetNodeTypes(EditorData, Kind))
+			{
+				TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
+				Entry->SetStringField(TEXT("name"), Struct->GetName());
+				Entry->SetStringField(TEXT("description"), Struct->GetToolTipText().ToString());
+
+				// Listing each type's settable properties is the point of this tool:
+				// without it the caller would have to guess what add_task accepts.
+				TArray<TSharedPtr<FJsonValue>> Props;
+				if (const UStruct* InstanceType = StateTreeMCPCompat::GetNodeInstanceType(Struct))
+				{
+					Entry->SetStringField(TEXT("instanceType"), InstanceType->GetName());
+					for (TFieldIterator<const FProperty> It(InstanceType); It; ++It)
+					{
+						const FProperty* Prop = *It;
+						if (!Prop->HasAnyPropertyFlags(CPF_Edit))
+						{
+							continue;
+						}
+						TSharedRef<FJsonObject> P = MakeShared<FJsonObject>();
+						P->SetStringField(TEXT("name"), Prop->GetName());
+						P->SetStringField(TEXT("type"), Prop->GetCPPType());
+						P->SetStringField(TEXT("description"), Prop->GetToolTipText().ToString());
+						Props.Add(MakeShared<FJsonValueObject>(P));
+					}
+				}
+				Entry->SetArrayField(TEXT("properties"), Props);
+				Types.Add(MakeShared<FJsonValueObject>(Entry));
+			}
+
+			OutResult = MakeShared<FJsonObject>();
+			OutResult->SetStringField(TEXT("kind"), KindText);
+			OutResult->SetArrayField(TEXT("nodeTypes"), Types);
+			return true;
+		});
+
+	Handlers.Add(TEXT("add_node"),
+		[](const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResult, FString& OutError)
+		{
+			if (!StateTreeMCPCompat::IsStateTreeAvailable(OutError))
+			{
+				return false;
+			}
+
+			UStateTree* Tree = nullptr;
+			UStateTreeEditorData* EditorData =
+				LoadEditorData(Params->GetStringField(TEXT("assetPath")), Tree, OutError);
+			if (!EditorData)
+			{
+				return false;
+			}
+
+			const FString KindText = Params->GetStringField(TEXT("kind"));
+			StateTreeMCPCompat::ENodeKind Kind;
+			if (!StateTreeMCPCompat::ParseNodeKind(KindText, Kind))
+			{
+				OutError = FString::Printf(
+					TEXT("'%s' is not a node kind. Use task, condition, evaluator or globalTask."),
+					*KindText);
+				return false;
+			}
+
+			// Evaluators and global tasks live on the asset, everything else on a state.
+			UStateTreeState* State = nullptr;
+			const FString StateIdText = Params->GetStringField(TEXT("stateId"));
+			if (!StateIdText.IsEmpty())
+			{
+				FGuid StateId;
+				if (!ParseStateId(StateIdText, StateId, OutError))
+				{
+					return false;
+				}
+				State = StateTreeMCPCompat::FindState(EditorData, StateId);
+				if (!State)
+				{
+					OutError = FString::Printf(TEXT("No state with id '%s'."), *StateIdText);
+					return false;
+				}
+			}
+
+			const FString TypeName = Params->GetStringField(TEXT("nodeType"));
+			const UScriptStruct* NodeType = StateTreeMCPCompat::FindNodeType(EditorData, Kind, TypeName);
+			if (!NodeType)
+			{
+				OutError = FString::Printf(
+					TEXT("'%s' is not an available %s for this tree's schema. Call list_node_types."),
+					*TypeName, *KindText);
+				return false;
+			}
+
+			FGuid NodeID;
+			const UStruct* InstanceType = nullptr;
+			void* InstanceMemory = nullptr;
+			if (!StateTreeMCPCompat::AddNode(
+					EditorData, State, Kind, NodeType, NodeID, InstanceType, InstanceMemory, OutError))
+			{
+				return false;
+			}
+
+			// Settings arrive as plain JSON and are applied by reflection, so this
+			// works for any task type without knowing its fields in advance.
+			TArray<FString> Applied;
+			if (Params->HasTypedField<EJson::Object>(TEXT("properties")) && InstanceType && InstanceMemory)
+			{
+				const TSharedPtr<FJsonObject> Props = Params->GetObjectField(TEXT("properties"));
+				if (!FJsonObjectConverter::JsonObjectToUStruct(
+						Props.ToSharedRef(), InstanceType, InstanceMemory, 0, 0))
+				{
+					OutError = FString::Printf(
+						TEXT("The node was added, but some properties did not apply. ")
+						TEXT("Check names and types against list_node_types (instance type '%s')."),
+						*InstanceType->GetName());
+					return false;
+				}
+				Props->Values.GetKeys(Applied);
+			}
+
+			Tree->MarkPackageDirty();
+
+			OutResult = MakeShared<FJsonObject>();
+			OutResult->SetStringField(TEXT("nodeId"), NodeID.ToString());
+			OutResult->SetStringField(TEXT("nodeType"), NodeType->GetName());
+			TArray<TSharedPtr<FJsonValue>> AppliedJson;
+			for (const FString& Name : Applied)
+			{
+				AppliedJson.Add(MakeShared<FJsonValueString>(Name));
+			}
+			OutResult->SetArrayField(TEXT("appliedProperties"), AppliedJson);
+			return true;
+		});
+
+	Handlers.Add(TEXT("add_transition"),
+		[](const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResult, FString& OutError)
+		{
+			if (!StateTreeMCPCompat::IsStateTreeAvailable(OutError))
+			{
+				return false;
+			}
+
+			UStateTree* Tree = nullptr;
+			UStateTreeEditorData* EditorData =
+				LoadEditorData(Params->GetStringField(TEXT("assetPath")), Tree, OutError);
+			if (!EditorData)
+			{
+				return false;
+			}
+
+			FGuid StateId;
+			const FString StateIdText = Params->GetStringField(TEXT("stateId"));
+			if (!ParseStateId(StateIdText, StateId, OutError))
+			{
+				return false;
+			}
+
+			UStateTreeState* State = StateTreeMCPCompat::FindState(EditorData, StateId);
+			if (!State)
+			{
+				OutError = FString::Printf(TEXT("No state with id '%s'."), *StateIdText);
+				return false;
+			}
+
+			FGuid TargetId;
+			const FString TargetIdText = Params->GetStringField(TEXT("targetStateId"));
+			if (!TargetIdText.IsEmpty() && !ParseStateId(TargetIdText, TargetId, OutError))
+			{
+				return false;
+			}
+
+			FGuid TransitionID;
+			if (!StateTreeMCPCompat::AddTransition(
+					EditorData, State,
+					Params->GetStringField(TEXT("trigger")),
+					Params->GetStringField(TEXT("linkType")),
+					TargetId,
+					Params->GetStringField(TEXT("priority")),
+					TransitionID, OutError))
+			{
+				return false;
+			}
+
+			Tree->MarkPackageDirty();
+
+			OutResult = MakeShared<FJsonObject>();
+			OutResult->SetStringField(TEXT("transitionId"), TransitionID.ToString());
 			return true;
 		});
 

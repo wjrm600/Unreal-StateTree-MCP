@@ -14,10 +14,16 @@
 
 #if STATETREEMCP_HAS_STATETREE
 #include "StateTree.h"
+#include "StateTreeConditionBase.h"
 #include "StateTreeEditorData.h"
+#include "StateTreeEditorNode.h"
+#include "StateTreeEvaluatorBase.h"
 #include "StateTreeFactory.h"
+#include "StateTreeNodeBase.h"
 #include "StateTreeSchema.h"
 #include "StateTreeState.h"
+#include "StateTreeTaskBase.h"
+#include "StateTreeTypes.h"
 #if STATETREEMCP_HAS_EDITING_SUBSYSTEM
 #include "StateTreeEditingSubsystem.h"
 #include "StateTreeCompilerLog.h"
@@ -289,6 +295,288 @@ bool RemoveState(UStateTreeEditorData* EditorData, const FGuid& StateID)
 
 	return true;
 #else
+	return false;
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// Nodes: tasks, conditions, evaluators
+// ---------------------------------------------------------------------------
+
+bool ParseNodeKind(const FString& Text, ENodeKind& OutKind)
+{
+	if (Text.Equals(TEXT("task"), ESearchCase::IgnoreCase))            { OutKind = ENodeKind::Task;           return true; }
+	if (Text.Equals(TEXT("condition"), ESearchCase::IgnoreCase))       { OutKind = ENodeKind::EnterCondition; return true; }
+	if (Text.Equals(TEXT("enterCondition"), ESearchCase::IgnoreCase))  { OutKind = ENodeKind::EnterCondition; return true; }
+	if (Text.Equals(TEXT("evaluator"), ESearchCase::IgnoreCase))       { OutKind = ENodeKind::Evaluator;      return true; }
+	if (Text.Equals(TEXT("globalTask"), ESearchCase::IgnoreCase))      { OutKind = ENodeKind::GlobalTask;     return true; }
+	return false;
+}
+
+#if STATETREEMCP_HAS_STATETREE
+
+/** The base struct every node of this kind derives from. */
+static const UScriptStruct* GetNodeBaseStruct(ENodeKind Kind)
+{
+	switch (Kind)
+	{
+	case ENodeKind::Task:
+	case ENodeKind::GlobalTask:      return FStateTreeTaskBase::StaticStruct();
+	case ENodeKind::EnterCondition:  return FStateTreeConditionBase::StaticStruct();
+	case ENodeKind::Evaluator:       return FStateTreeEvaluatorBase::StaticStruct();
+	}
+	return nullptr;
+}
+
+#endif
+
+TArray<const UScriptStruct*> GetNodeTypes(UStateTreeEditorData* EditorData, ENodeKind Kind)
+{
+	TArray<const UScriptStruct*> Out;
+#if STATETREEMCP_HAS_STATETREE
+	const UScriptStruct* Base = GetNodeBaseStruct(Kind);
+	if (!Base || !EditorData)
+	{
+		return Out;
+	}
+
+	const UStateTreeSchema* Schema = EditorData->Schema;
+
+	for (TObjectIterator<UScriptStruct> It; It; ++It)
+	{
+		UScriptStruct* Struct = *It;
+		if (Struct == Base || !Struct->IsChildOf(Base))
+		{
+			continue;
+		}
+
+		// The schema is the authority on what this particular tree may use, so a
+		// type it rejects is not offered even though it exists.
+		if (Schema && !Schema->IsStructAllowed(Struct))
+		{
+			continue;
+		}
+
+		Out.Add(Struct);
+	}
+
+	Out.Sort([](const UScriptStruct& A, const UScriptStruct& B) { return A.GetName() < B.GetName(); });
+#endif
+	return Out;
+}
+
+const UScriptStruct* FindNodeType(UStateTreeEditorData* EditorData, ENodeKind Kind, const FString& TypeName)
+{
+	if (TypeName.IsEmpty())
+	{
+		return nullptr;
+	}
+
+	for (const UScriptStruct* Struct : GetNodeTypes(EditorData, Kind))
+	{
+		if (Struct->GetName() == TypeName
+			|| FString::Printf(TEXT("F%s"), *Struct->GetName()) == TypeName
+			|| Struct->GetPathName() == TypeName)
+		{
+			return Struct;
+		}
+	}
+	return nullptr;
+}
+
+const UStruct* GetNodeInstanceType(const UScriptStruct* NodeType)
+{
+#if STATETREEMCP_HAS_STATETREE
+	if (!NodeType || !NodeType->IsChildOf(FStateTreeNodeBase::StaticStruct()))
+	{
+		return nullptr;
+	}
+
+	// GetInstanceDataType is virtual, so it needs a real instance to ask. The
+	// struct's default object serves, and costs nothing to keep around.
+	FInstancedStruct Probe;
+	Probe.InitializeAs(NodeType);
+	return Probe.Get<FStateTreeNodeBase>().GetInstanceDataType();
+#else
+	return nullptr;
+#endif
+}
+
+bool AddNode(
+	UStateTreeEditorData* EditorData,
+	UStateTreeState* State,
+	ENodeKind Kind,
+	const UScriptStruct* NodeType,
+	FGuid& OutNodeID,
+	const UStruct*& OutInstanceType,
+	void*& OutInstanceMemory,
+	FString& OutError)
+{
+#if STATETREEMCP_HAS_STATETREE
+	if (!EditorData || !NodeType)
+	{
+		OutError = TEXT("Missing editor data or node type.");
+		return false;
+	}
+
+	const bool bAssetLevel = (Kind == ENodeKind::Evaluator || Kind == ENodeKind::GlobalTask);
+	if (!bAssetLevel && !State)
+	{
+		OutError = TEXT("This node kind belongs to a state, so a state id is required.");
+		return false;
+	}
+
+	TArray<FStateTreeEditorNode>* List = nullptr;
+	UObject* Outer = EditorData;
+	switch (Kind)
+	{
+	case ENodeKind::Task:           List = &State->Tasks;                Outer = State; break;
+	case ENodeKind::EnterCondition: List = &State->EnterConditions;      Outer = State; break;
+	case ENodeKind::Evaluator:      List = &EditorData->Evaluators;      break;
+	case ENodeKind::GlobalTask:     List = &EditorData->GlobalTasks;     break;
+	}
+
+	Outer->Modify();
+
+	FStateTreeEditorNode& NewNode = List->AddDefaulted_GetRef();
+	NewNode.ID = FGuid::NewGuid();
+	NewNode.Node.InitializeAs(NodeType);
+
+	// A node carries its settings either as a struct or as an instanced object,
+	// depending on the type. Both paths mirror what the editor itself does.
+	const FStateTreeNodeBase& NodeBase = NewNode.Node.Get<FStateTreeNodeBase>();
+	const UStruct* InstanceType = NodeBase.GetInstanceDataType();
+
+	OutInstanceType = InstanceType;
+	OutInstanceMemory = nullptr;
+
+	if (const UScriptStruct* InstanceStruct = Cast<const UScriptStruct>(InstanceType))
+	{
+		NewNode.Instance.InitializeAs(InstanceStruct);
+		OutInstanceMemory = NewNode.Instance.GetMutableMemory();
+	}
+	else if (const UClass* InstanceClass = Cast<const UClass>(InstanceType))
+	{
+		NewNode.InstanceObject = NewObject<UObject>(Outer, InstanceClass);
+		OutInstanceMemory = NewNode.InstanceObject;
+	}
+
+	if (const UScriptStruct* RuntimeStruct = Cast<const UScriptStruct>(NodeBase.GetExecutionRuntimeDataType()))
+	{
+		NewNode.ExecutionRuntimeData.InitializeAs(RuntimeStruct);
+	}
+
+	OutNodeID = NewNode.ID;
+	OutError.Reset();
+	return true;
+#else
+	OutError = TEXT("StateTree is not available in this engine build.");
+	return false;
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// Transitions
+// ---------------------------------------------------------------------------
+
+#if STATETREEMCP_HAS_STATETREE
+
+/**
+ * Resolves an enum entry by name through reflection rather than a hand-written
+ * table, so entries added in a later engine version work without a code change.
+ */
+template <typename TEnum>
+static bool ParseEnum(const FString& Name, TEnum& OutValue, FString& OutError, const TCHAR* Label)
+{
+	const UEnum* Enum = StaticEnum<TEnum>();
+	const int64 Value = Enum->GetValueByNameString(Name);
+	if (Value == INDEX_NONE)
+	{
+		TArray<FString> Valid;
+		for (int32 i = 0; i < Enum->NumEnums() - 1; ++i)
+		{
+			if (!Enum->HasMetaData(TEXT("Hidden"), i))
+			{
+				Valid.Add(Enum->GetNameStringByIndex(i));
+			}
+		}
+		OutError = FString::Printf(TEXT("'%s' is not a %s. Try one of: %s"),
+			*Name, Label, *FString::Join(Valid, TEXT(", ")));
+		return false;
+	}
+
+	OutValue = static_cast<TEnum>(Value);
+	return true;
+}
+
+#endif
+
+bool AddTransition(
+	UStateTreeEditorData* EditorData,
+	UStateTreeState* State,
+	const FString& TriggerName,
+	const FString& LinkTypeName,
+	const FGuid& TargetStateID,
+	const FString& PriorityName,
+	FGuid& OutTransitionID,
+	FString& OutError)
+{
+#if STATETREEMCP_HAS_STATETREE
+	if (!State)
+	{
+		OutError = TEXT("A state is required.");
+		return false;
+	}
+
+	EStateTreeTransitionTrigger Trigger = EStateTreeTransitionTrigger::OnStateCompleted;
+	if (!TriggerName.IsEmpty() && !ParseEnum(TriggerName, Trigger, OutError, TEXT("transition trigger")))
+	{
+		return false;
+	}
+
+	EStateTreeTransitionType LinkType = EStateTreeTransitionType::GotoState;
+	if (!LinkTypeName.IsEmpty() && !ParseEnum(LinkTypeName, LinkType, OutError, TEXT("transition type")))
+	{
+		return false;
+	}
+
+	EStateTreeTransitionPriority Priority = EStateTreeTransitionPriority::Normal;
+	if (!PriorityName.IsEmpty() && !ParseEnum(PriorityName, Priority, OutError, TEXT("transition priority")))
+	{
+		return false;
+	}
+
+	UStateTreeState* Target = nullptr;
+	if (LinkType == EStateTreeTransitionType::GotoState)
+	{
+		Target = FindState(EditorData, TargetStateID);
+		if (!Target)
+		{
+			OutError = TEXT("A GotoState transition needs targetStateId to name an existing state.");
+			return false;
+		}
+	}
+
+	State->Modify();
+
+	FStateTreeTransition& Transition = State->Transitions.AddDefaulted_GetRef();
+	Transition.ID = FGuid::NewGuid();
+	Transition.Trigger = Trigger;
+	Transition.Priority = Priority;
+	Transition.State.LinkType = LinkType;
+	if (Target)
+	{
+		// The name is carried alongside the id purely so the editor can report a
+		// broken link by name after the target is gone.
+		Transition.State.ID = Target->ID;
+		Transition.State.Name = Target->Name;
+	}
+
+	OutTransitionID = Transition.ID;
+	OutError.Reset();
+	return true;
+#else
+	OutError = TEXT("StateTree is not available in this engine build.");
 	return false;
 #endif
 }

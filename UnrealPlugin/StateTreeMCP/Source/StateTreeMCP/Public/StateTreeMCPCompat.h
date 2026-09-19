@@ -115,6 +115,70 @@ namespace StateTreeMCPCompat
 	/** The asset's editor data, or null if the asset has none. */
 	STATETREEMCP_API UStateTreeEditorData* GetEditorData(UStateTree* StateTree);
 
+	// ---- Nodes: tasks, conditions, evaluators -----------------------------
+	//
+	// A node is an FStateTreeEditorNode holding two pieces: Node, the task or
+	// condition type itself, and Instance, that type's settings. Building one by
+	// hand means initialising both, which is what AddNode does.
+
+	/** Which list on a state (or on the asset, for global nodes) a node belongs to. */
+	enum class ENodeKind : uint8
+	{
+		Task,
+		EnterCondition,
+		Evaluator,      // asset-level
+		GlobalTask,     // asset-level
+	};
+
+	/** Parses "task", "condition", "evaluator" or "globalTask". */
+	STATETREEMCP_API bool ParseNodeKind(const FString& Text, ENodeKind& OutKind);
+
+	/**
+	 * Node types of this kind that the asset's schema permits.
+	 * A schema restricts what may be used, so the answer depends on the asset.
+	 */
+	STATETREEMCP_API TArray<const UScriptStruct*> GetNodeTypes(
+		UStateTreeEditorData* EditorData, ENodeKind Kind);
+
+	/** Finds a node type by name, with or without its leading F, or by path. */
+	STATETREEMCP_API const UScriptStruct* FindNodeType(
+		UStateTreeEditorData* EditorData, ENodeKind Kind, const FString& TypeName);
+
+	/** The struct holding a node type's settings, or null when it has none. */
+	STATETREEMCP_API const UStruct* GetNodeInstanceType(const UScriptStruct* NodeType);
+
+	/**
+	 * Appends a node of NodeType to the relevant list and hands back the new
+	 * node's id and the memory of its settings, for the caller to fill in.
+	 */
+	STATETREEMCP_API bool AddNode(
+		UStateTreeEditorData* EditorData,
+		UStateTreeState* State,
+		ENodeKind Kind,
+		const UScriptStruct* NodeType,
+		FGuid& OutNodeID,
+		const UStruct*& OutInstanceType,
+		void*& OutInstanceMemory,
+		FString& OutError);
+
+	// ---- Transitions ------------------------------------------------------
+
+	/**
+	 * Adds a transition to a state.
+	 *
+	 * TargetStateID is only consulted for a GotoState link; the other link types
+	 * (NextState, Succeeded, Failed and so on) name their destination themselves.
+	 */
+	STATETREEMCP_API bool AddTransition(
+		UStateTreeEditorData* EditorData,
+		UStateTreeState* State,
+		const FString& TriggerName,
+		const FString& LinkTypeName,
+		const FGuid& TargetStateID,
+		const FString& PriorityName,
+		FGuid& OutTransitionID,
+		FString& OutError);
+
 	// ---- Saving -----------------------------------------------------------
 
 	/**

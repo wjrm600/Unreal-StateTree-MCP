@@ -93,6 +93,90 @@ def statetree_add_state(asset_path: str, name: str, parent_id: str = "") -> str:
 
 
 @mcp.tool()
+def statetree_list_node_types(asset_path: str, kind: str = "task") -> str:
+    """List the tasks, conditions or evaluators this tree is allowed to use.
+
+    Args:
+        asset_path: Content path of the asset, e.g. "/Game/AI/ST_Grunt".
+        kind: One of "task", "condition", "evaluator", "globalTask".
+
+    Each entry carries its settable `properties` with names and types. Call this
+    before `statetree_add_node`: the tree's schema decides what is permitted,
+    and projects define their own tasks, so the list cannot be guessed.
+    """
+    return _call("list_node_types", assetPath=asset_path, kind=kind)
+
+
+@mcp.tool()
+def statetree_add_node(
+    asset_path: str,
+    kind: str,
+    node_type: str,
+    state_id: str = "",
+    properties: dict | None = None,
+) -> str:
+    """Add a task, condition or evaluator, and set its properties.
+
+    Args:
+        asset_path: Content path of the asset, e.g. "/Game/AI/ST_Grunt".
+        kind: "task" or "condition" for a state; "evaluator" or "globalTask" for
+            the whole tree.
+        node_type: Type name from `statetree_list_node_types`.
+        state_id: The state to add to. Required for tasks and conditions, and
+            left empty for evaluators and global tasks, which belong to the tree.
+        properties: Settings for the node, keyed by the property names that
+            `statetree_list_node_types` reports for this type.
+
+    This is what makes a state actually do something; a state with no tasks runs
+    and completes immediately.
+    """
+    return _call(
+        "add_node",
+        assetPath=asset_path,
+        kind=kind,
+        nodeType=node_type,
+        stateId=state_id,
+        properties=properties or {},
+    )
+
+
+@mcp.tool()
+def statetree_add_transition(
+    asset_path: str,
+    state_id: str,
+    trigger: str = "OnStateCompleted",
+    link_type: str = "GotoState",
+    target_state_id: str = "",
+    priority: str = "Normal",
+) -> str:
+    """Add a transition telling a state where to go and when.
+
+    Args:
+        asset_path: Content path of the asset, e.g. "/Game/AI/ST_Grunt".
+        state_id: The state the transition leaves from.
+        trigger: When it fires — "OnStateCompleted", "OnStateSucceeded",
+            "OnStateFailed", "OnTick", "OnEvent", "OnDelegate".
+        link_type: Where it goes — "GotoState", "NextState",
+            "NextSelectableState", "Succeeded", "Failed", "None".
+        target_state_id: The destination, required only for "GotoState".
+        priority: "Low", "Normal", "Medium", "High" or "Critical", deciding
+            which transition wins when several fire at once.
+
+    Without transitions a tree cannot move between states, so this is what turns
+    a hierarchy into behaviour.
+    """
+    return _call(
+        "add_transition",
+        assetPath=asset_path,
+        stateId=state_id,
+        trigger=trigger,
+        linkType=link_type,
+        targetStateId=target_state_id,
+        priority=priority,
+    )
+
+
+@mcp.tool()
 def statetree_rename_state(asset_path: str, state_id: str, name: str) -> str:
     """Rename a state.
 
