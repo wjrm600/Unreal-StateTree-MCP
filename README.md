@@ -69,10 +69,17 @@ UnrealPlugin/StateTreeMCP/Source/StateTreeMCP/
 | 도구 | 하는 일 |
 |---|---|
 | `statetree_capabilities` | 연결된 엔진 버전과 지원 기능 보고 |
+| `statetree_list_schemas` | 이 프로젝트에서 쓸 수 있는 스키마 목록 |
+| `statetree_create` | StateTree 에셋 새로 생성 |
 | `statetree_describe` | 에셋의 전체 상태 목록 (id / 이름 / 깊이 / 부모) |
 | `statetree_add_state` | 상태 추가 |
+| `statetree_rename_state` | 상태 이름 변경 |
+| `statetree_remove_state` | 상태 삭제 (하위 포함) |
 | `statetree_compile` | 검증 + 컴파일 (기본으로 저장까지) |
 | `statetree_save` | 디스크에 저장 |
+
+**아직 없는 것:** 태스크·트랜지션·진입 조건 추가. 즉 지금은 트리의 **뼈대**만 만들 수
+있고, 상태가 실제로 무슨 일을 하는지는 에디터에서 채워야 합니다.
 
 **도구 이름은 엔진 버전과 무관하게 고정입니다.** 버전 차이는 안쪽 구현이 흡수합니다.
 

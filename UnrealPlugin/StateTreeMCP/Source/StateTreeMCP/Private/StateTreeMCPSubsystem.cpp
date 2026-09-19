@@ -38,6 +38,35 @@ namespace
 		return nullptr;
 #endif
 	}
+
+	/** Loads an asset and its editor data together, since nearly every handler needs both. */
+	UStateTreeEditorData* LoadEditorData(const FString& AssetPath, UStateTree*& OutTree, FString& OutError)
+	{
+		OutTree = LoadStateTree(AssetPath, OutError);
+		if (!OutTree)
+		{
+			return nullptr;
+		}
+
+		UStateTreeEditorData* EditorData = StateTreeMCPCompat::GetEditorData(OutTree);
+		if (!EditorData)
+		{
+			OutError = FString::Printf(TEXT("'%s' has no editor data."), *AssetPath);
+		}
+		return EditorData;
+	}
+
+	/** Parses a state id, reporting the malformed and the missing differently. */
+	bool ParseStateId(const FString& Text, FGuid& OutId, FString& OutError)
+	{
+		if (!FGuid::Parse(Text, OutId))
+		{
+			OutError = FString::Printf(
+				TEXT("'%s' is not a state id. Call describe_tree to get one."), *Text);
+			return false;
+		}
+		return true;
+	}
 }
 
 void UStateTreeMCPSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -182,26 +211,21 @@ void UStateTreeMCPSubsystem::RegisterHandlers()
 
 			const FString ParentIdText = Params->GetStringField(TEXT("parentId"));
 			UStateTreeState* Parent = nullptr;
-#if STATETREEMCP_HAS_STATETREE
-			FGuid ParentId;
-			if (!ParentIdText.IsEmpty() && FGuid::Parse(ParentIdText, ParentId))
+			if (!ParentIdText.IsEmpty())
 			{
-				StateTreeMCPCompat::VisitAllStates(EditorData,
-					[&Parent, &ParentId](UStateTreeState& State, UStateTreeState*, int32)
-					{
-						if (!Parent && State.ID == ParentId)
-						{
-							Parent = &State;
-						}
-					});
+				FGuid ParentId;
+				if (!ParseStateId(ParentIdText, ParentId, OutError))
+				{
+					return false;
+				}
 
+				Parent = StateTreeMCPCompat::FindState(EditorData, ParentId);
 				if (!Parent)
 				{
 					OutError = FString::Printf(TEXT("No state with id '%s'."), *ParentIdText);
 					return false;
 				}
 			}
-#endif
 
 			const FName NewName(*Params->GetStringField(TEXT("name")));
 			UStateTreeState* NewState = StateTreeMCPCompat::AddChildState(EditorData, Parent, NewName);
@@ -282,6 +306,174 @@ void UStateTreeMCPSubsystem::RegisterHandlers()
 
 			OutResult = MakeShared<FJsonObject>();
 			OutResult->SetBoolField(TEXT("saved"), true);
+			return true;
+		});
+
+	// Which schemas this project offers. A new tree cannot be made without one,
+	// and projects add their own, so the answer has to come from the editor.
+	Handlers.Add(TEXT("list_schemas"),
+		[](const TSharedPtr<FJsonObject>&, TSharedPtr<FJsonObject>& OutResult, FString& OutError)
+		{
+			if (!StateTreeMCPCompat::IsStateTreeAvailable(OutError))
+			{
+				return false;
+			}
+
+			TArray<TSharedPtr<FJsonValue>> Schemas;
+			for (const UClass* Class : StateTreeMCPCompat::GetSchemaClasses())
+			{
+				TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
+				Entry->SetStringField(TEXT("name"), Class->GetName());
+				Entry->SetStringField(TEXT("path"), Class->GetPathName());
+				Entry->SetStringField(TEXT("description"), Class->GetToolTipText().ToString());
+				Schemas.Add(MakeShared<FJsonValueObject>(Entry));
+			}
+
+			OutResult = MakeShared<FJsonObject>();
+			OutResult->SetArrayField(TEXT("schemas"), Schemas);
+			return true;
+		});
+
+	Handlers.Add(TEXT("create"),
+		[](const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResult, FString& OutError)
+		{
+			if (!StateTreeMCPCompat::IsStateTreeAvailable(OutError))
+			{
+				return false;
+			}
+
+			const FString PackagePath = Params->GetStringField(TEXT("packagePath"));
+			const FString AssetName = Params->GetStringField(TEXT("name"));
+			const FString SchemaName = Params->GetStringField(TEXT("schema"));
+
+			if (PackagePath.IsEmpty() || AssetName.IsEmpty())
+			{
+				OutError = TEXT("Both packagePath (e.g. \"/Game/AI\") and name are required.");
+				return false;
+			}
+
+			UClass* SchemaClass = StateTreeMCPCompat::FindSchemaClass(SchemaName);
+			if (!SchemaClass)
+			{
+				OutError = FString::Printf(
+					TEXT("Unknown schema '%s'. Call list_schemas to see what this project offers."),
+					*SchemaName);
+				return false;
+			}
+
+			UStateTree* NewTree = StateTreeMCPCompat::CreateStateTree(
+				PackagePath, AssetName, SchemaClass, OutError);
+			if (!NewTree)
+			{
+				return false;
+			}
+
+			// New assets exist only in memory until saved, and an unsaved brand new
+			// asset is easier to lose than an edit to an existing one.
+			FString SaveError;
+			const bool bSaved = StateTreeMCPCompat::SaveAsset(NewTree, SaveError);
+
+			OutResult = MakeShared<FJsonObject>();
+			OutResult->SetStringField(TEXT("assetPath"), NewTree->GetPathName());
+			OutResult->SetStringField(TEXT("schema"), SchemaClass->GetName());
+			OutResult->SetBoolField(TEXT("saved"), bSaved);
+			if (!bSaved)
+			{
+				OutResult->SetStringField(TEXT("saveError"), SaveError);
+			}
+			return true;
+		});
+
+	Handlers.Add(TEXT("remove_state"),
+		[](const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResult, FString& OutError)
+		{
+			if (!StateTreeMCPCompat::IsStateTreeAvailable(OutError))
+			{
+				return false;
+			}
+
+			UStateTree* Tree = nullptr;
+			UStateTreeEditorData* EditorData =
+				LoadEditorData(Params->GetStringField(TEXT("assetPath")), Tree, OutError);
+			if (!EditorData)
+			{
+				return false;
+			}
+
+			const FString StateIdText = Params->GetStringField(TEXT("stateId"));
+			FGuid StateId;
+			if (!ParseStateId(StateIdText, StateId, OutError))
+			{
+				return false;
+			}
+
+			// Report how much is going away: removing a state takes its whole
+			// subtree with it, which is easy to do by accident.
+			int32 Removed = 0;
+			if (UStateTreeState* Target = StateTreeMCPCompat::FindState(EditorData, StateId))
+			{
+				TArray<UStateTreeState*> Pending{ Target };
+				while (Pending.Num() > 0)
+				{
+					UStateTreeState* Current = Pending.Pop();
+					++Removed;
+					Pending.Append(StateTreeMCPCompat::GetChildStates(Current));
+				}
+			}
+
+			if (!StateTreeMCPCompat::RemoveState(EditorData, StateId))
+			{
+				OutError = FString::Printf(TEXT("No state with id '%s'."), *StateIdText);
+				return false;
+			}
+
+			Tree->MarkPackageDirty();
+
+			OutResult = MakeShared<FJsonObject>();
+			OutResult->SetNumberField(TEXT("removedCount"), Removed);
+			return true;
+		});
+
+	Handlers.Add(TEXT("rename_state"),
+		[](const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResult, FString& OutError)
+		{
+			if (!StateTreeMCPCompat::IsStateTreeAvailable(OutError))
+			{
+				return false;
+			}
+
+			UStateTree* Tree = nullptr;
+			UStateTreeEditorData* EditorData =
+				LoadEditorData(Params->GetStringField(TEXT("assetPath")), Tree, OutError);
+			if (!EditorData)
+			{
+				return false;
+			}
+
+			const FString StateIdText = Params->GetStringField(TEXT("stateId"));
+			FGuid StateId;
+			if (!ParseStateId(StateIdText, StateId, OutError))
+			{
+				return false;
+			}
+
+			const FString NewName = Params->GetStringField(TEXT("name"));
+			if (NewName.IsEmpty())
+			{
+				OutError = TEXT("A new name is required.");
+				return false;
+			}
+
+			if (!StateTreeMCPCompat::RenameState(EditorData, StateId, FName(*NewName)))
+			{
+				OutError = FString::Printf(TEXT("No state with id '%s'."), *StateIdText);
+				return false;
+			}
+
+			Tree->MarkPackageDirty();
+
+			OutResult = MakeShared<FJsonObject>();
+			OutResult->SetStringField(TEXT("name"), NewName);
 			return true;
 		});
 }

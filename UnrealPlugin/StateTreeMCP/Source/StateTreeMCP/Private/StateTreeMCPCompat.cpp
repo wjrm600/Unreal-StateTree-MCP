@@ -8,9 +8,15 @@
 #include "UObject/SavePackage.h"
 #include "UObject/UnrealType.h"
 
+#include "AssetToolsModule.h"
+#include "IAssetTools.h"
+#include "UObject/UObjectHash.h"
+
 #if STATETREEMCP_HAS_STATETREE
 #include "StateTree.h"
 #include "StateTreeEditorData.h"
+#include "StateTreeFactory.h"
+#include "StateTreeSchema.h"
 #include "StateTreeState.h"
 #if STATETREEMCP_HAS_EDITING_SUBSYSTEM
 #include "StateTreeEditingSubsystem.h"
@@ -211,6 +217,41 @@ UStateTreeState* AddChildState(UStateTreeEditorData* EditorData, UStateTreeState
 #endif
 }
 
+UStateTreeState* FindState(UStateTreeEditorData* EditorData, const FGuid& StateID)
+{
+#if STATETREEMCP_HAS_STATETREE
+	if (!EditorData || !StateID.IsValid())
+	{
+		return nullptr;
+	}
+
+	UStateTreeState* Found = nullptr;
+	VisitAllStates(EditorData, [&Found, &StateID](UStateTreeState& State, UStateTreeState*, int32)
+	{
+		if (!Found && State.ID == StateID)
+		{
+			Found = &State;
+		}
+	});
+	return Found;
+#else
+	return nullptr;
+#endif
+}
+
+bool RenameState(UStateTreeEditorData* EditorData, const FGuid& StateID, FName NewName)
+{
+#if STATETREEMCP_HAS_STATETREE
+	if (UStateTreeState* State = FindState(EditorData, StateID))
+	{
+		State->Modify();
+		State->Name = NewName;
+		return true;
+	}
+#endif
+	return false;
+}
+
 bool RemoveState(UStateTreeEditorData* EditorData, const FGuid& StateID)
 {
 #if STATETREEMCP_HAS_STATETREE
@@ -249,6 +290,92 @@ bool RemoveState(UStateTreeEditorData* EditorData, const FGuid& StateID)
 	return true;
 #else
 	return false;
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// Creating assets
+// ---------------------------------------------------------------------------
+
+TArray<UClass*> GetSchemaClasses()
+{
+	TArray<UClass*> Out;
+#if STATETREEMCP_HAS_STATETREE
+	TArray<UClass*> Derived;
+	GetDerivedClasses(UStateTreeSchema::StaticClass(), Derived, /*bRecursive*/ true);
+
+	for (UClass* Class : Derived)
+	{
+		// Abstract bases and the reinstanced leftovers of a hot reload are not
+		// things anyone can pick, so keep them out of the list.
+		if (Class && !Class->HasAnyClassFlags(CLASS_Abstract | CLASS_Deprecated | CLASS_NewerVersionExists))
+		{
+			Out.Add(Class);
+		}
+	}
+
+	Out.Sort([](const UClass& A, const UClass& B) { return A.GetName() < B.GetName(); });
+#endif
+	return Out;
+}
+
+UClass* FindSchemaClass(const FString& SchemaName)
+{
+	if (SchemaName.IsEmpty())
+	{
+		return nullptr;
+	}
+
+	for (UClass* Class : GetSchemaClasses())
+	{
+		// Accept the name with or without the leading U, and the full path too,
+		// because callers reasonably write it either way.
+		if (Class->GetName() == SchemaName
+			|| FString::Printf(TEXT("U%s"), *Class->GetName()) == SchemaName
+			|| Class->GetPathName() == SchemaName)
+		{
+			return Class;
+		}
+	}
+	return nullptr;
+}
+
+UStateTree* CreateStateTree(
+	const FString& PackagePath, const FString& AssetName, UClass* SchemaClass, FString& OutError)
+{
+#if STATETREEMCP_HAS_STATETREE
+	if (!SchemaClass)
+	{
+		OutError = TEXT("A schema class is required. Call list_schemas to see the options.");
+		return nullptr;
+	}
+
+	UStateTreeFactory* Factory = NewObject<UStateTreeFactory>();
+	Factory->SetSchemaClass(SchemaClass);
+
+	// The factory opens the asset editor by default, which is unhelpful when the
+	// caller is a script creating several trees in a row.
+	Factory->bEditAfterNew = false;
+
+	IAssetTools& AssetTools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
+	UObject* Created = AssetTools.CreateAsset(AssetName, PackagePath, UStateTree::StaticClass(), Factory);
+
+	UStateTree* NewTree = Cast<UStateTree>(Created);
+	if (!NewTree)
+	{
+		OutError = FString::Printf(
+			TEXT("Could not create '%s/%s'. The name may already be taken, or the path may not exist."),
+			*PackagePath, *AssetName);
+		return nullptr;
+	}
+
+	UE_LOG(LogStateTreeMCPCompat, Log, TEXT("Created %s with schema %s"),
+		*NewTree->GetPathName(), *SchemaClass->GetName());
+	OutError.Reset();
+	return NewTree;
+#else
+	OutError = TEXT("StateTree is not available in this engine build.");
+	return nullptr;
 #endif
 }
 

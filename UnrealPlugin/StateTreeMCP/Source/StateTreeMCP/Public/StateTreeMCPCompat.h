@@ -70,6 +70,9 @@ namespace StateTreeMCPCompat
 		UStateTreeEditorData* EditorData,
 		TFunctionRef<void(UStateTreeState& State, UStateTreeState* Parent, int32 Depth)> Visitor);
 
+	/** Looks a state up by id anywhere in the tree, or null when absent. */
+	STATETREEMCP_API UStateTreeState* FindState(UStateTreeEditorData* EditorData, const FGuid& StateID);
+
 	// ---- Mutating the hierarchy ------------------------------------------
 
 	/** Creates a child state under Parent (or a new root when Parent is null). */
@@ -78,6 +81,28 @@ namespace StateTreeMCPCompat
 
 	/** Removes a state and everything under it. Returns false if not found. */
 	STATETREEMCP_API bool RemoveState(UStateTreeEditorData* EditorData, const FGuid& StateID);
+
+	/** Renames a state. Returns false if not found. */
+	STATETREEMCP_API bool RenameState(UStateTreeEditorData* EditorData, const FGuid& StateID, FName NewName);
+
+	// ---- Creating assets --------------------------------------------------
+
+	/**
+	 * Every StateTree needs a schema, which decides what it can be attached to and
+	 * which nodes it may use. Projects add their own, so the list is gathered by
+	 * reflection rather than hard-coded.
+	 */
+	STATETREEMCP_API TArray<UClass*> GetSchemaClasses();
+
+	/** Finds a schema class by name, accepting either "UStateTreeComponentSchema" or "StateTreeComponentSchema". */
+	STATETREEMCP_API UClass* FindSchemaClass(const FString& SchemaName);
+
+	/**
+	 * Creates a StateTree asset with one root state, compiled and ready.
+	 * PackagePath is a content folder, e.g. "/Game/AI".
+	 */
+	STATETREEMCP_API UStateTree* CreateStateTree(
+		const FString& PackagePath, const FString& AssetName, UClass* SchemaClass, FString& OutError);
 
 	// ---- Compiling --------------------------------------------------------
 

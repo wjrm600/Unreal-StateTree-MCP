@@ -38,6 +38,32 @@ def statetree_capabilities() -> str:
 
 
 @mcp.tool()
+def statetree_list_schemas() -> str:
+    """List the StateTree schemas this project offers.
+
+    A schema decides what a tree can be attached to and which tasks and
+    conditions it may use, and every new tree needs one. Projects define their
+    own, so call this before `statetree_create` rather than guessing a name.
+    """
+    return _call("list_schemas")
+
+
+@mcp.tool()
+def statetree_create(package_path: str, name: str, schema: str) -> str:
+    """Create a new StateTree asset containing a single root state.
+
+    Args:
+        package_path: Content folder to create it in, e.g. "/Game/AI".
+        name: Asset name, e.g. "ST_Grunt".
+        schema: Schema class name from `statetree_list_schemas`.
+
+    The asset is compiled and saved. Add states to it with
+    `statetree_add_state`.
+    """
+    return _call("create", packagePath=package_path, name=name, schema=schema)
+
+
+@mcp.tool()
 def statetree_describe(asset_path: str) -> str:
     """List every state in a StateTree asset, with its hierarchy depth and contents.
 
@@ -64,6 +90,32 @@ def statetree_add_state(asset_path: str, name: str, parent_id: str = "") -> str:
     `statetree_compile` when the edits are complete.
     """
     return _call("add_state", assetPath=asset_path, name=name, parentId=parent_id)
+
+
+@mcp.tool()
+def statetree_rename_state(asset_path: str, state_id: str, name: str) -> str:
+    """Rename a state.
+
+    Args:
+        asset_path: Content path of the asset, e.g. "/Game/AI/ST_Grunt".
+        state_id: Id of the state, from `statetree_describe`.
+        name: The new name.
+    """
+    return _call("rename_state", assetPath=asset_path, stateId=state_id, name=name)
+
+
+@mcp.tool()
+def statetree_remove_state(asset_path: str, state_id: str) -> str:
+    """Remove a state and everything nested under it.
+
+    Args:
+        asset_path: Content path of the asset, e.g. "/Game/AI/ST_Grunt".
+        state_id: Id of the state, from `statetree_describe`.
+
+    Child states go with the parent, so check the tree first if you only meant
+    to remove one. The reply reports how many states were removed.
+    """
+    return _call("remove_state", assetPath=asset_path, stateId=state_id)
 
 
 @mcp.tool()
