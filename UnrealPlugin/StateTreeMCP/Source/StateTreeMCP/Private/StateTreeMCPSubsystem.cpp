@@ -374,7 +374,10 @@ void UStateTreeMCPSubsystem::RegisterHandlers()
 			const bool bSaved = StateTreeMCPCompat::SaveAsset(NewTree, SaveError);
 
 			OutResult = MakeShared<FJsonObject>();
-			OutResult->SetStringField(TEXT("assetPath"), NewTree->GetPathName());
+			// The package name ("/Game/AI/ST_Grunt"), not GetPathName's object form
+			// ("/Game/AI/ST_Grunt.ST_Grunt"): the caller feeds this straight back
+			// into the other tools, so it should match what they take.
+			OutResult->SetStringField(TEXT("assetPath"), NewTree->GetOutermost()->GetName());
 			OutResult->SetStringField(TEXT("schema"), SchemaClass->GetName());
 			OutResult->SetBoolField(TEXT("saved"), bSaved);
 			if (!bSaved)
