@@ -1,5 +1,7 @@
 # Unreal StateTree MCP
 
+*한국어 · [English](README.en.md)*
+
 언리얼 엔진의 **StateTree 에셋을 AI 어시스턴트가 직접 읽고 편집**할 수 있게 해주는 MCP 서버입니다.
 
 > **현재 상태: UE 5.7.4에서 동작 검증 완료.** 에셋 생성부터 상태·태스크·조건·트랜지션·
@@ -98,34 +100,6 @@ list_schemas → create → add_state → list_node_types → add_node
 **아직 없는 것:** 상태 이동·복제, 트리 파라미터 편집, 고려사항(utility) 편집.
 이런 건 에디터에서 하시면 됩니다.
 
----|---|
-| `statetree_capabilities` | 연결된 엔진 버전과 지원 기능 보고 |
-| `statetree_list_schemas` | 이 프로젝트에서 쓸 수 있는 스키마 목록 |
-| `statetree_create` | StateTree 에셋 새로 생성 |
-| `statetree_describe` | 에셋의 전체 상태 목록 (id / 이름 / 깊이 / 부모) |
-| `statetree_add_state` | 상태 추가 |
-| `statetree_rename_state` | 상태 이름 변경 |
-| `statetree_remove_state` | 상태 삭제 (하위 포함) |
-| `statetree_list_node_types` | 쓸 수 있는 태스크·조건 목록 (+ 설정 가능한 프로퍼티) |
-| `statetree_add_node` | 태스크·조건·평가자 추가 + 프로퍼티 설정 |
-| `statetree_add_transition` | 트랜지션 추가 |
-| `statetree_compile` | 검증 + 컴파일 (기본으로 저장까지) |
-| `statetree_save` | 디스크에 저장 |
-
-전형적인 흐름:
-
-```
-list_schemas → create → add_state → list_node_types → add_node → add_transition → compile
-```
-
-**아직 없는 것:**
-
-- **태스크·조건·트랜지션 삭제** — 추가는 되지만 지우려면 에디터를 써야 합니다.
-  상태는 `remove_state`로 지울 수 있습니다.
-- 프로퍼티 바인딩 (태스크 입력을 다른 값에 연결)
-- 상태 이동·복제, 파라미터 편집
-
-**도구 이름은 엔진 버전과 무관하게 고정입니다.** 버전 차이는 안쪽 구현이 흡수합니다.
 
 ---
 
