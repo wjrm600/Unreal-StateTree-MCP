@@ -71,7 +71,9 @@ def statetree_describe(asset_path: str) -> str:
         asset_path: Content path of the asset, e.g. "/Game/AI/ST_Grunt".
 
     Returns a flat list of states, each carrying `id`, `name`, `depth` and
-    `parentId`, so the full tree shape can be reconstructed.
+    `parentId`, so the full tree shape can be reconstructed, along with the
+    tasks, conditions, transitions and bindings on each. The ids it reports are
+    what the editing tools take.
     """
     return _call("describe_tree", assetPath=asset_path)
 

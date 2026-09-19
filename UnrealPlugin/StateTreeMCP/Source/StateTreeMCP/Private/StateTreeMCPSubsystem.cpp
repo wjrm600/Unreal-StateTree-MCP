@@ -213,7 +213,7 @@ void UStateTreeMCPSubsystem::RegisterHandlers()
 
 					// Name what is on the state, not just how much: after adding a
 					// task the caller needs to see that the right one landed.
-					auto NodeNames = [](const TArray<FStateTreeEditorNode>& Nodes)
+					auto NodeNames = [EditorData](const TArray<FStateTreeEditorNode>& Nodes)
 					{
 						TArray<TSharedPtr<FJsonValue>> Out;
 						for (const FStateTreeEditorNode& Node : Nodes)
@@ -222,6 +222,24 @@ void UStateTreeMCPSubsystem::RegisterHandlers()
 							TSharedRef<FJsonObject> N = MakeShared<FJsonObject>();
 							N->SetStringField(TEXT("id"), Node.ID.ToString());
 							N->SetStringField(TEXT("type"), Type ? Type->GetName() : TEXT("(empty)"));
+
+							// Show the wires too: a binding you cannot see is one you
+							// cannot check, and add_binding reports only that it took.
+							TArray<TSharedPtr<FJsonValue>> Bindings;
+							for (const StateTreeMCPCompat::FBindingInfo& Info :
+									StateTreeMCPCompat::GetNodeBindings(EditorData, Node.ID))
+							{
+								TSharedRef<FJsonObject> B = MakeShared<FJsonObject>();
+								B->SetStringField(TEXT("targetProperty"), Info.TargetProperty);
+								B->SetStringField(TEXT("source"), Info.SourceName);
+								B->SetStringField(TEXT("sourcePath"), Info.SourcePath);
+								Bindings.Add(MakeShared<FJsonValueObject>(B));
+							}
+							if (Bindings.Num() > 0)
+							{
+								N->SetArrayField(TEXT("bindings"), Bindings);
+							}
+
 							Out.Add(MakeShared<FJsonValueObject>(N));
 						}
 						return Out;

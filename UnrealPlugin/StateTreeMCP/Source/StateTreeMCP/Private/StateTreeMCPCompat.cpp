@@ -646,6 +646,43 @@ TArray<FBindableSource> GetBindableSources(UStateTreeEditorData* EditorData, con
 	return Out;
 }
 
+TArray<FBindingInfo> GetNodeBindings(UStateTreeEditorData* EditorData, const FGuid& NodeID)
+{
+	TArray<FBindingInfo> Out;
+#if STATETREEMCP_HAS_STATETREE
+	if (!EditorData || !NodeID.IsValid())
+	{
+		return Out;
+	}
+
+	EditorData->EditorBindings.ForEachBinding([&](const FPropertyBindingBinding& Binding)
+	{
+		const FPropertyBindingPath& Target = Binding.GetTargetPath();
+		if (Target.GetStructID() != NodeID)
+		{
+			return;
+		}
+
+		const FPropertyBindingPath& Source = Binding.GetSourcePath();
+
+		FBindingInfo& Info = Out.AddDefaulted_GetRef();
+		Info.TargetProperty = Target.ToString();
+		Info.SourcePath = Source.ToString();
+
+		// The source is an id; give it the name the caller would recognise.
+		TInstancedStruct<FPropertyBindingBindableStructDescriptor> Desc;
+		if (EditorData->GetBindableStructByID(Source.GetStructID(), Desc))
+		{
+			if (const FPropertyBindingBindableStructDescriptor* Ptr = Desc.GetPtr())
+			{
+				Info.SourceName = Ptr->Name.ToString();
+			}
+		}
+	});
+#endif
+	return Out;
+}
+
 bool AddBinding(
 	UStateTreeEditorData* EditorData,
 	const FGuid& NodeID,

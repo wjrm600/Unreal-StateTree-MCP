@@ -213,6 +213,18 @@ namespace StateTreeMCPCompat
 	STATETREEMCP_API TArray<FBindableSource> GetBindableSources(
 		UStateTreeEditorData* EditorData, const FGuid& NodeID);
 
+	/** A wire already in place on a node. */
+	struct FBindingInfo
+	{
+		FString TargetProperty;  // the setting being fed
+		FString SourceName;      // what feeds it, e.g. "AIController"
+		FString SourcePath;      // the property on it, empty when bound whole
+	};
+
+	/** The wires feeding this node, so a caller can see what it has set up. */
+	STATETREEMCP_API TArray<FBindingInfo> GetNodeBindings(
+		UStateTreeEditorData* EditorData, const FGuid& NodeID);
+
 	/** Wires SourceStructID.SourceProperty into the node's TargetProperty. */
 	STATETREEMCP_API bool AddBinding(
 		UStateTreeEditorData* EditorData,
