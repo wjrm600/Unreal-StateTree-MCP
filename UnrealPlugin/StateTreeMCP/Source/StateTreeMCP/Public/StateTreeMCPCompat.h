@@ -89,4 +89,15 @@ namespace StateTreeMCPCompat
 
 	/** The asset's editor data, or null if the asset has none. */
 	STATETREEMCP_API UStateTreeEditorData* GetEditorData(UStateTree* StateTree);
+
+	// ---- Saving -----------------------------------------------------------
+
+	/**
+	 * Writes the asset's package to disk.
+	 *
+	 * Editing only marks the package dirty. Without an explicit save the work
+	 * lives in memory alone and is lost when the editor closes - a trap worth
+	 * closing rather than documenting.
+	 */
+	STATETREEMCP_API bool SaveAsset(UObject* Asset, FString& OutError);
 }

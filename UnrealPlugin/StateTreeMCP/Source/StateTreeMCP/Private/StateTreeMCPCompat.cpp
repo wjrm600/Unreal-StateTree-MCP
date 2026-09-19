@@ -3,6 +3,9 @@
 #include "StateTreeMCPCompat.h"
 
 #include "Interfaces/IPluginManager.h"
+#include "Misc/PackageName.h"
+#include "UObject/Package.h"
+#include "UObject/SavePackage.h"
 #include "UObject/UnrealType.h"
 
 #if STATETREEMCP_HAS_STATETREE
@@ -299,6 +302,39 @@ bool CompileTree(UStateTree* StateTree, FString& OutError)
 		ENGINE_MAJOR_VERSION, ENGINE_MINOR_VERSION);
 	return false;
 #endif
+}
+
+// ---------------------------------------------------------------------------
+// Saving
+// ---------------------------------------------------------------------------
+
+bool SaveAsset(UObject* Asset, FString& OutError)
+{
+	UPackage* Package = Asset ? Asset->GetOutermost() : nullptr;
+	if (!Package)
+	{
+		OutError = TEXT("No package to save.");
+		return false;
+	}
+
+	const FString FileName = FPackageName::LongPackageNameToFilename(
+		Package->GetName(), FPackageName::GetAssetPackageExtension());
+
+	FSavePackageArgs Args;
+	Args.TopLevelFlags = RF_Public | RF_Standalone;
+	Args.SaveFlags = SAVE_NoError;
+
+	if (!UPackage::SavePackage(Package, Asset, *FileName, Args))
+	{
+		OutError = FString::Printf(
+			TEXT("Failed to write '%s'. The file may be read-only or checked out by someone else."),
+			*FileName);
+		return false;
+	}
+
+	UE_LOG(LogStateTreeMCPCompat, Log, TEXT("Saved %s"), *Package->GetName());
+	OutError.Reset();
+	return true;
 }
 
 } // namespace StateTreeMCPCompat

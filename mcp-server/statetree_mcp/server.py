@@ -67,16 +67,32 @@ def statetree_add_state(asset_path: str, name: str, parent_id: str = "") -> str:
 
 
 @mcp.tool()
-def statetree_compile(asset_path: str) -> str:
+def statetree_compile(asset_path: str, save: bool = True) -> str:
     """Validate and compile a StateTree asset so the changes take effect in game.
 
     Args:
         asset_path: Content path of the asset, e.g. "/Game/AI/ST_Grunt".
+        save: Also write the asset to disk, which is almost always what you want.
+            Editing alone only marks it dirty, so skipping this loses the work if
+            the editor closes.
 
     Edits made through the other tools do nothing at runtime until the asset is
     compiled.
     """
-    return _call("compile", assetPath=asset_path)
+    return _call("compile", assetPath=asset_path, save=save)
+
+
+@mcp.tool()
+def statetree_save(asset_path: str) -> str:
+    """Write a StateTree asset to disk.
+
+    Args:
+        asset_path: Content path of the asset, e.g. "/Game/AI/ST_Grunt".
+
+    Only needed to persist edits without compiling; `statetree_compile` saves by
+    default.
+    """
+    return _call("save", assetPath=asset_path)
 
 
 def main() -> None:

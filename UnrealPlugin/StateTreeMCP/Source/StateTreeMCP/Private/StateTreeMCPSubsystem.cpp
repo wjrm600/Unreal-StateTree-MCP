@@ -241,8 +241,47 @@ void UStateTreeMCPSubsystem::RegisterHandlers()
 				return false;
 			}
 
+			// Compiling means the edits are finished, so persist them here rather
+			// than leaving a compiled-but-unsaved asset that a restart would lose.
+			// Pass "save": false to opt out.
+			bool bSave = true;
+			Params->TryGetBoolField(TEXT("save"), bSave);
+
+			FString SaveError;
+			const bool bSaved = bSave && StateTreeMCPCompat::SaveAsset(Tree, SaveError);
+
 			OutResult = MakeShared<FJsonObject>();
 			OutResult->SetBoolField(TEXT("compiled"), true);
+			OutResult->SetBoolField(TEXT("saved"), bSaved);
+			if (bSave && !bSaved)
+			{
+				OutResult->SetStringField(TEXT("saveError"), SaveError);
+			}
+			return true;
+		});
+
+	Handlers.Add(TEXT("save"),
+		[](const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonObject>& OutResult, FString& OutError)
+		{
+			if (!StateTreeMCPCompat::IsStateTreeAvailable(OutError))
+			{
+				return false;
+			}
+
+			const FString AssetPath = Params->GetStringField(TEXT("assetPath"));
+			UStateTree* Tree = LoadStateTree(AssetPath, OutError);
+			if (!Tree)
+			{
+				return false;
+			}
+
+			if (!StateTreeMCPCompat::SaveAsset(Tree, OutError))
+			{
+				return false;
+			}
+
+			OutResult = MakeShared<FJsonObject>();
+			OutResult->SetBoolField(TEXT("saved"), true);
 			return true;
 		});
 }

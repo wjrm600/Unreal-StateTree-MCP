@@ -69,7 +69,8 @@ UnrealPlugin/StateTreeMCP/Source/StateTreeMCP/
 | `statetree_capabilities` | 연결된 엔진 버전과 지원 기능 보고 |
 | `statetree_describe` | 에셋의 전체 상태 목록 (id / 이름 / 깊이 / 부모) |
 | `statetree_add_state` | 상태 추가 |
-| `statetree_compile` | 검증 + 컴파일 |
+| `statetree_compile` | 검증 + 컴파일 (기본으로 저장까지) |
+| `statetree_save` | 디스크에 저장 |
 
 **도구 이름은 엔진 버전과 무관하게 고정입니다.** 버전 차이는 안쪽 구현이 흡수합니다.
 
