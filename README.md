@@ -115,7 +115,7 @@ python -c "import mcp" || pip install mcp
   "command": "python",
   "args": ["-m", "statetree_mcp"],
   "env": {
-    "PYTHONPATH": "<이 저장소>\mcp-server",
+    "PYTHONPATH": "<이 저장소>\\mcp-server",
     "STATETREE_MCP_PORT": "8092"
   }
 }
