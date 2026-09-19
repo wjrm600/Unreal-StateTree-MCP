@@ -87,8 +87,12 @@ UnrealPlugin/StateTreeMCP/Source/StateTreeMCP/
 list_schemas → create → add_state → list_node_types → add_node → add_transition → compile
 ```
 
-**아직 없는 것:** 프로퍼티 바인딩(태스크 입력을 다른 값에 연결), 상태 이동·복제,
-파라미터 편집. 이런 건 에디터에서 하시면 됩니다.
+**아직 없는 것:**
+
+- **태스크·조건·트랜지션 삭제** — 추가는 되지만 지우려면 에디터를 써야 합니다.
+  상태는 `remove_state`로 지울 수 있습니다.
+- 프로퍼티 바인딩 (태스크 입력을 다른 값에 연결)
+- 상태 이동·복제, 파라미터 편집
 
 **도구 이름은 엔진 버전과 무관하게 고정입니다.** 버전 차이는 안쪽 구현이 흡수합니다.
 
