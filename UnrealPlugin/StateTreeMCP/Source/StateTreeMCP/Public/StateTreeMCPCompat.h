@@ -109,12 +109,16 @@ namespace StateTreeMCPCompat
 	/** Fixes up links and validates the asset after an edit. No-op if unsupported. */
 	STATETREEMCP_API void ValidateTree(UStateTree* StateTree);
 
-	/** One line from the compiler, as the Message Log would show it. */
+	/**
+	 * One line from the compiler, as the Message Log would show it.
+	 *
+	 * The text already names the state and node the message concerns; the
+	 * compiler keeps those as separate fields but does not expose them, and its
+	 * own formatting is the one the editor shows.
+	 */
 	struct FCompileMessage
 	{
 		FString Severity;   // "Error", "Warning" or "Info"
-		FString StateName;  // empty when the message is not about one state
-		FString NodeName;   // the task or condition at fault, when known
 		FString Message;
 	};
 

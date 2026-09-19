@@ -304,8 +304,6 @@ void UStateTreeMCPSubsystem::RegisterHandlers()
 			{
 				TSharedRef<FJsonObject> M = MakeShared<FJsonObject>();
 				M->SetStringField(TEXT("severity"), Message.Severity);
-				M->SetStringField(TEXT("state"), Message.StateName);
-				M->SetStringField(TEXT("node"), Message.NodeName);
 				M->SetStringField(TEXT("message"), Message.Message);
 				MessagesJson.Add(MakeShared<FJsonValueObject>(M));
 			}

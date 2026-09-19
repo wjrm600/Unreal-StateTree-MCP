@@ -3,6 +3,7 @@
 #include "StateTreeMCPCompat.h"
 
 #include "Interfaces/IPluginManager.h"
+#include "Logging/TokenizedMessage.h"
 #include "Misc/PackageName.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
@@ -706,18 +707,19 @@ bool CompileTree(UStateTree* StateTree, TArray<FCompileMessage>& OutMessages, FS
 	FStateTreeCompilerLog Log;
 	const bool bCompiled = UStateTreeEditingSubsystem::CompileStateTree(StateTree, Log);
 
-	for (const FStateTreeCompilerLogMessage& Entry : Log.Messages)
+	// Log.Messages itself is protected. ToTokenizedMessages is the public way in,
+	// and its text already carries the state and node names the raw entries hold
+	// separately, formatted the way the editor's own Message Log shows them.
+	for (const TSharedRef<FTokenizedMessage>& Entry : Log.ToTokenizedMessages())
 	{
 		FCompileMessage& Out = OutMessages.AddDefaulted_GetRef();
-		switch (Entry.Severity)
+		switch (Entry->GetSeverity())
 		{
-		case EMessageSeverity::Error:          Out.Severity = TEXT("Error");   break;
-		case EMessageSeverity::Warning:        Out.Severity = TEXT("Warning"); break;
-		default:                               Out.Severity = TEXT("Info");    break;
+		case EMessageSeverity::Error:   Out.Severity = TEXT("Error");   break;
+		case EMessageSeverity::Warning: Out.Severity = TEXT("Warning"); break;
+		default:                        Out.Severity = TEXT("Info");    break;
 		}
-		Out.StateName = Entry.State ? Entry.State->Name.ToString() : FString();
-		Out.NodeName = Entry.Item.Name.ToString();
-		Out.Message = Entry.Message;
+		Out.Message = Entry->ToText().ToString();
 	}
 
 	if (bCompiled)
