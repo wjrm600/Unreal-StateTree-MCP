@@ -99,24 +99,41 @@ Copy-Item -Recurse "<이 저장소>\UnrealPlugin\StateTreeMCP" "<프로젝트>\P
 
 ### 2. MCP 서버
 
+의존성은 `mcp` 하나뿐입니다. 다른 MCP 서버를 이미 쓰고 있다면 대개 깔려 있습니다.
+
 ```bash
-cd mcp-server
-pip install -e .
+python -c "import mcp" || pip install mcp
 ```
+
+**패키지 설치(`pip install -e .`)는 권장하지 않습니다.** 아래처럼 `PYTHONPATH`로
+저장소를 직접 가리키면, 코드를 고쳤을 때 설치본과 저장소가 어긋날 일이 없습니다.
 
 ### 3. Claude에 등록
 
 ```json
-{
-  "mcpServers": {
-    "unreal-statetree": {
-      "command": "python",
-      "args": ["-m", "statetree_mcp"],
-      "env": { "STATETREE_MCP_PORT": "8092" }
-    }
+"unreal-statetree": {
+  "command": "python",
+  "args": ["-m", "statetree_mcp"],
+  "env": {
+    "PYTHONPATH": "<이 저장소>\mcp-server",
+    "STATETREE_MCP_PORT": "8092"
   }
 }
 ```
+
+**어느 파일에 넣느냐가 중요합니다** — 쓰는 클라이언트마다 읽는 곳이 다릅니다.
+
+| 클라이언트 | 설정 파일 |
+|---|---|
+| Claude 데스크톱 앱 (Windows) | `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude\claude_desktop_config.json` |
+| Claude 데스크톱 앱 (macOS) | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Claude Code (프로젝트 단위) | 프로젝트 루트의 `.mcp.json` |
+
+데스크톱 앱 안의 Code 탭도 **데스크톱 설정 파일**을 읽습니다. 둘 다 쓴다면 양쪽에
+같은 항목을 넣으면 됩니다. **설정을 고친 뒤에는 앱을 완전히 재시작해야 반영됩니다.**
+
+> 이 서버는 **언리얼 에디터가 켜져 있어야** 동작합니다. 꺼져 있으면 도구가
+> "Could not reach the Unreal Editor on port 8092..." 라고 답합니다.
 
 ---
 
