@@ -253,7 +253,13 @@ void UStateTreeMCPSubsystem::RegisterHandlers()
 
 bool UStateTreeMCPSubsystem::HandleRpc(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
 {
-	const FString Body = FString(UTF8_TO_TCHAR(reinterpret_cast<const char*>(Request.Body.GetData())));
+	// Request.Body is raw bytes with no terminator, so it cannot be handed to
+	// UTF8_TO_TCHAR directly: the conversion would read past the end until it
+	// happened to meet a zero. Longer bodies survived that by luck; a short one
+	// like {"action":"capabilities"} came out as garbage.
+	TArray<uint8> BodyBytes(Request.Body);
+	BodyBytes.Add(0);
+	const FString Body = UTF8_TO_TCHAR(reinterpret_cast<const char*>(BodyBytes.GetData()));
 
 	TSharedPtr<FJsonObject> Payload;
 	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Body);
