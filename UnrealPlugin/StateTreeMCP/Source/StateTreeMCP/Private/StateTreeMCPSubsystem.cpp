@@ -308,28 +308,31 @@ void UStateTreeMCPSubsystem::RegisterHandlers()
 				MessagesJson.Add(MakeShared<FJsonValueObject>(M));
 			}
 
-			if (!bCompiled)
-			{
-				// The envelope only carries a string on failure, so the detail would
-				// be lost. Report it as a success whose result says it did not
-				// compile, and hand back every message.
-				OutResult = MakeShared<FJsonObject>();
-				OutResult->SetBoolField(TEXT("compiled"), false);
-				OutResult->SetBoolField(TEXT("saved"), false);
-				OutResult->SetStringField(TEXT("error"), OutError);
-				OutResult->SetArrayField(TEXT("messages"), MessagesJson);
-				OutError.Reset();
-				return true;
-			}
-
-			// Compiling means the edits are finished, so persist them here rather
-			// than leaving a compiled-but-unsaved asset that a restart would lose.
-			// Pass "save": false to opt out.
+			// Persist regardless of whether it compiled. Edits so far live only in
+			// memory, so a failed compile that skipped saving would throw away the
+			// whole session's work the next time the editor restarts - which is a
+			// far worse outcome than an asset on disk that does not yet compile.
+			// The editor itself lets you save a StateTree with errors. Pass
+			// "save": false to opt out.
 			bool bSave = true;
 			Params->TryGetBoolField(TEXT("save"), bSave);
 
 			FString SaveError;
 			const bool bSaved = bSave && StateTreeMCPCompat::SaveAsset(Tree, SaveError);
+
+			if (!bCompiled)
+			{
+				// The envelope only carries a string on failure, so the messages
+				// would be lost. Report it as a call that succeeded and a result
+				// that says the tree did not compile.
+				OutResult = MakeShared<FJsonObject>();
+				OutResult->SetBoolField(TEXT("compiled"), false);
+				OutResult->SetBoolField(TEXT("saved"), bSaved);
+				OutResult->SetStringField(TEXT("error"), OutError);
+				OutResult->SetArrayField(TEXT("messages"), MessagesJson);
+				OutError.Reset();
+				return true;
+			}
 
 			OutResult = MakeShared<FJsonObject>();
 			OutResult->SetBoolField(TEXT("compiled"), true);

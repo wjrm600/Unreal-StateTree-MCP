@@ -86,8 +86,9 @@ def statetree_add_state(asset_path: str, name: str, parent_id: str = "") -> str:
         parent_id: Id of the parent state, from `statetree_describe`. Leave empty
             to add a new root state.
 
-    The asset is marked dirty but not saved, and not compiled. Call
-    `statetree_compile` when the edits are complete.
+    The edit lives in memory until saved, so finish with `statetree_compile`
+    (which saves) or `statetree_save`. Until then, restarting the editor
+    discards it.
     """
     return _call("add_state", assetPath=asset_path, name=name, parentId=parent_id)
 
